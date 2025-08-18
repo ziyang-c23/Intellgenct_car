@@ -213,7 +213,7 @@ if __name__ == "__main__":
     print("检测器信息:", detector.get_detector_info())
     
     # 简单的测试，需要摄像头或图像文件
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
     if cap.isOpened():
         print("摄像头已打开，按 'q' 退出测试，按 's' 切换检测模式")
         detect_all_mode = False
