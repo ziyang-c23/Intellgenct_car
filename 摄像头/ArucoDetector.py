@@ -1,6 +1,15 @@
+
 """
 ArUco 标记检测模块
-用于检测 ArUco 标记的位置和朝向
+-------------------
+本模块用于检测 ArUco 标记的位置和朝向，支持单个/多个/指定ID标记检测，并可在图像上绘制检测结果。
+主要类和方法：
+    - ArucoDetector: 主检测器类
+        - detect_single: 检测单个标记
+        - detect_all: 检测所有标记
+        - detect_by_id: 检测指定ID标记
+        - draw_detections: 在图像上绘制检测结果
+        - get_detector_info: 获取检测器参数信息
 """
 
 import cv2
@@ -10,7 +19,7 @@ from typing import Optional, List, Tuple, Union, Dict
 class ArucoDetector:
     """
     ArUco 标记检测器类
-    用于检测和定位 ArUco 标记
+    用于检测和定位 ArUco 标记，支持多种检测模式和结果绘制。
     """
     
     def __init__(self, dict_type=cv2.aruco.DICT_6X6_50):
@@ -114,13 +123,15 @@ class ArucoDetector:
     
     def draw_detections(self, frame: np.ndarray, detection_result: Union[Tuple, List, None]) -> np.ndarray:
         """
-        在图像上绘制 ArUco 检测结果
+        在图像上绘制 ArUco 检测结果。
+        支持单个标记或多个标记的检测结果。
         
-        Args:
+        参数:
             frame: 输入的BGR图像帧
             detection_result: detect_single 或 detect_all 的返回结果
-            
-        Returns:
+                - detect_single: (center, angle)
+                - detect_all: [(id, center, angle), ...]
+        返回:
             np.ndarray: 绘制了检测结果的图像
         """
         output_frame = frame.copy()
@@ -142,12 +153,11 @@ class ArucoDetector:
     
     def _draw_single_marker(self, frame: np.ndarray, center: Tuple[int, int], angle: float, marker_id: Optional[int] = None):
         """
-        绘制单个标记
-        
-        Args:
+        在图像上绘制单个 ArUco 标记的中心点、朝向箭头和ID/角度信息。
+        参数:
             frame: 图像
-            center: 中心点
-            angle: 角度
+            center: 中心点坐标 (x, y)
+            angle: 朝向角度（度）
             marker_id: 标记ID（可选）
         """
         # 绘制中心点
@@ -205,24 +215,26 @@ class ArucoDetector:
 
 
 if __name__ == "__main__":
-    # 测试代码
+    """
+    主程序：摄像头实时检测 ArUco 标记，支持单个/多个标记模式切换。
+    按 'q' 退出，按 's' 切换检测模式。
+    """
     print("ArUco 检测模块加载成功")
-    
     # 创建检测器实例
     detector = ArucoDetector()
     print("检测器信息:", detector.get_detector_info())
-    
+
     # 简单的测试，需要摄像头或图像文件
-    cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if cap.isOpened():
         print("摄像头已打开，按 'q' 退出测试，按 's' 切换检测模式")
         detect_all_mode = False
-        
+
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-            
+
             if detect_all_mode:
                 # 检测所有 ArUco 标记
                 results = detector.detect_all(frame)
@@ -231,7 +243,7 @@ if __name__ == "__main__":
                     for marker_id, center, angle in results:
                         print(f"  ID={marker_id}: 中心=({center[0]}, {center[1]}), 角度={angle:.1f}°")
                     frame = detector.draw_detections(frame, results)
-                
+
                 # 显示模式信息
                 cv2.putText(frame, "Mode: Detect All (Press 's' to switch)", 
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
@@ -242,25 +254,25 @@ if __name__ == "__main__":
                     center, angle = result
                     print(f"检测到标记: 中心=({center[0]}, {center[1]}), 角度={angle:.1f}°")
                     frame = detector.draw_detections(frame, result)
-                
+
                 # 显示模式信息
                 cv2.putText(frame, "Mode: Detect Single (Press 's' to switch)", 
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            
+
             cv2.imshow('ArUco Detection Test', frame)
-            
+
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
             elif key == ord('s'):
                 detect_all_mode = not detect_all_mode
                 print(f"切换到 {'检测所有标记' if detect_all_mode else '检测单个标记'} 模式")
-        
+
         cap.release()
         cv2.destroyAllWindows()
     else:
         print("无法打开摄像头，跳过测试")
-        
+
         # 演示如何使用类
         print("\n使用示例:")
         print("# 创建检测器")
