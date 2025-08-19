@@ -131,22 +131,37 @@ if __name__ == "__main__":
     主程序：打开摄像头，实时检测并显示围栏区域。
     按q键退出。
     """
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(2)
     detector = FenceDetector()
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("无法读取摄像头")
-            break
-
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        quad = detector.detect(hsv)
-        frame = detector.draw_results(frame, quad)
-
-        cv2.imshow("Fence Detection", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):  # 按q退出
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+    if cap.isOpened():
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("无法读取摄像头")
+                break
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            quad = detector.detect(hsv)
+            frame = detector.draw_results(frame, quad)
+            cv2.imshow("Fence Detection", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):  # 按q退出
+                break
+        cap.release()
+        cv2.destroyAllWindows()
+    else:
+        print("无法打开摄像头，可通过读取图片进行测试。")
+        img_path = input("请输入要检测的图片路径（如 test.jpg），直接回车跳过：").strip()
+        if img_path:
+            img = cv2.imread(img_path)
+            if img is None:
+                print(f"无法读取图片: {img_path}")
+            else:
+                hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+                quad = detector.detect(hsv)
+                img = detector.draw_results(img, quad)
+                cv2.imshow("Fence Image Detection", img)
+                cv2.imwrite("Fence.jpg", img)
+                print("按任意键关闭窗口...")
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+        else:
+            print("未输入图片路径，跳过测试。")

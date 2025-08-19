@@ -199,36 +199,55 @@ if __name__ == "__main__":
     主程序：打开摄像头，实时检测并显示红色和黄色物体。
     按q键退出。
     """
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(2)
     detector = ItemDetector()
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("无法读取摄像头")
-            break
-
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        items = detector.detect(hsv)
-
-        # 计算距离最近的物体（以画面中心为参考）
-        h_, w_ = frame.shape[:2]
-        center_point = (w_ // 2, h_ // 2)
-        nearest = ItemDetector.nearest_to(center_point, items)
-        if nearest:
-            for i, item in enumerate(items):
-                if item["center"] == nearest["center"]:
-                    items[i]["dist_px"] = nearest["dist_px"]
-
-        frame = detector.draw_results(frame, items)
-
-        # 画出画面中心点
-        cv2.circle(frame, center_point, 6, (255,0,0), -1)
-        cv2.putText(frame, "Center", (center_point[0]+10, center_point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,0,0), 2)
-
-        cv2.imshow("Item Detection", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):  # 按q退出
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+    if cap.isOpened():
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("无法读取摄像头")
+                break
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            items = detector.detect(hsv)
+            h_, w_ = frame.shape[:2]
+            center_point = (w_ // 2, h_ // 2)
+            nearest = ItemDetector.nearest_to(center_point, items)
+            if nearest:
+                for i, item in enumerate(items):
+                    if item["center"] == nearest["center"]:
+                        items[i]["dist_px"] = nearest["dist_px"]
+            frame = detector.draw_results(frame, items)
+            cv2.circle(frame, center_point, 6, (255,0,0), -1)
+            cv2.putText(frame, "Center", (center_point[0]+10, center_point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,0,0), 2)
+            cv2.imshow("Item Detection", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):  # 按q退出
+                break
+        cap.release()
+        cv2.destroyAllWindows()
+    else:
+        print("无法打开摄像头，可通过读取图片进行测试。")
+        img_path = input("请输入要检测的图片路径（如 test.jpg），直接回车跳过：").strip()
+        if img_path:
+            img = cv2.imread(img_path)
+            if img is None:
+                print(f"无法读取图片: {img_path}")
+            else:
+                hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+                items = detector.detect(hsv)
+                h_, w_ = img.shape[:2]
+                center_point = (w_ // 2, h_ // 2)
+                nearest = ItemDetector.nearest_to(center_point, items)
+                if nearest:
+                    for i, item in enumerate(items):
+                        if item["center"] == nearest["center"]:
+                            items[i]["dist_px"] = nearest["dist_px"]
+                img = detector.draw_results(img, items)
+                cv2.circle(img, center_point, 6, (255,0,0), -1)
+                cv2.putText(img, "Center", (center_point[0]+10, center_point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,0,0), 2)
+                cv2.imshow("Item Image Detection", img)
+                cv2.imwrite("Item.jpg", img)
+                print("按任意键关闭窗口...")
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+        else:
+            print("未输入图片路径，跳过测试。")

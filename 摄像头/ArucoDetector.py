@@ -125,7 +125,7 @@ class ArucoDetector:
         """
         在图像上绘制 ArUco 检测结果。
         支持单个标记或多个标记的检测结果。
-        
+        保证每个标记都绘制完整信息（ID、中心、角度）。
         参数:
             frame: 输入的BGR图像帧
             detection_result: detect_single 或 detect_all 的返回结果
@@ -135,25 +135,30 @@ class ArucoDetector:
             np.ndarray: 绘制了检测结果的图像
         """
         output_frame = frame.copy()
-        
         if detection_result is None:
             return output_frame
-        
-        # 处理单个检测结果
+        # 如果是单个检测结果，尝试用 detect_all 再查一次，获取ID
         if isinstance(detection_result, tuple) and len(detection_result) == 2:
             center, angle = detection_result
-            self._draw_single_marker(output_frame, center, angle)
-        
-        # 处理多个检测结果
+            # 通过中心和角度匹配ID（仅用于绘制单个时）
+            # 这里假设 frame 是原始图像
+            all_results = self.detect_all(frame)
+            found = False
+            for marker_id, c, a in all_results:
+                if np.linalg.norm(np.array(center) - np.array(c)) < 2 and abs(angle - a) < 2:
+                    self._draw_single_marker(output_frame, c, a, marker_id)
+                    found = True
+                    break
+            if not found:
+                self._draw_single_marker(output_frame, center, angle, marker_id=None)
         elif isinstance(detection_result, list):
             for marker_id, center, angle in detection_result:
                 self._draw_single_marker(output_frame, center, angle, marker_id)
-        
         return output_frame
     
     def _draw_single_marker(self, frame: np.ndarray, center: Tuple[int, int], angle: float, marker_id: Optional[int] = None):
         """
-        在图像上绘制单个 ArUco 标记的中心点、朝向箭头和ID/角度信息。
+        在图像上绘制单个 ArUco 标记的中心点、朝向箭头和ID/角度/中心信息。
         参数:
             frame: 图像
             center: 中心点坐标 (x, y)
@@ -162,22 +167,19 @@ class ArucoDetector:
         """
         # 绘制中心点
         cv2.circle(frame, center, 5, (0, 255, 0), -1)
-        
         # 绘制朝向箭头
         arrow_length = 50
         end_x = int(center[0] + arrow_length * np.cos(np.radians(angle)))
         end_y = int(center[1] + arrow_length * np.sin(np.radians(angle)))
         cv2.arrowedLine(frame, center, (end_x, end_y), (255, 0, 0), 2)
-        
-        # 显示信息
+        # 显示完整信息
         if marker_id is not None:
-            text = f"ID:{marker_id} {angle:.1f}°"
+            text = f"ID:{marker_id} ({center[0]},{center[1]}) {angle:.1f}°"
         else:
-            text = f"Angle: {angle:.1f}°"
-        
-        cv2.putText(frame, text, 
-                   (center[0] + 10, center[1] - 10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            text = f"({center[0]},{center[1]}) {angle:.1f}°"
+        cv2.putText(frame, text,
+                    (center[0] + 10, center[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     
     def get_detector_info(self) -> Dict:
         """
@@ -225,7 +227,7 @@ if __name__ == "__main__":
     print("检测器信息:", detector.get_detector_info())
 
     # 简单的测试，需要摄像头或图像文件
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    cap = cv2.VideoCapture(2, cv2.CAP_DSHOW)
     if cap.isOpened():
         print("摄像头已打开，按 'q' 退出测试，按 's' 切换检测模式")
         detect_all_mode = False
@@ -271,17 +273,25 @@ if __name__ == "__main__":
         cap.release()
         cv2.destroyAllWindows()
     else:
-        print("无法打开摄像头，跳过测试")
-
-        # 演示如何使用类
-        print("\n使用示例:")
-        print("# 创建检测器")
-        print("detector = ArucoDetector()")
-        print("\n# 检测单个标记")
-        print("result = detector.detect_single(frame)")
-        print("\n# 检测所有标记")
-        print("all_results = detector.detect_all(frame)")
-        print("\n# 检测指定ID的标记")
-        print("target_result = detector.detect_by_id(frame, target_id=5)")
-        print("\n# 绘制检测结果")
-        print("annotated_frame = detector.draw_detections(frame, result)")
+        print("无法打开摄像头，可通过读取图片进行测试。")
+        img_path = input("请输入要检测的图片路径（如 test.jpg），直接回车跳过：").strip()
+        if img_path:
+            img = cv2.imread(img_path)
+            if img is None:
+                print(f"无法读取图片: {img_path}")
+            else:
+                results = detector.detect_all(img)
+                if results:
+                    print(f"检测到 {len(results)} 个标记:")
+                    for marker_id, center, angle in results:
+                        print(f"  ID={marker_id}: 中心=({center[0]}, {center[1]}), 角度={angle:.1f}°")
+                    img = detector.draw_detections(img, results)
+                else:
+                    print("未检测到标记")
+                cv2.imshow('ArUco Image Detection', img)
+                cv2.imwrite("ArUco.jpg", img)
+                print("按任意键关闭窗口...")
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+        else:
+            print("未输入图片路径，跳过测试。")
