@@ -36,7 +36,7 @@ clock = time.clock()
 # 红色和黄色物体 LAB 阈值（可根据实际调整）
 threshold_red = [(15, 41, 11, 55, 4, 37)]
 threshold_yellow = [(35, 75, -12, 7, 36, 72)]
-
+threshold_both = [(14, 63, -13, 45, 19, 65)]
 
 # 物体检测主流程
 
@@ -111,12 +111,42 @@ def detect_object(img):
     }
 
 def test_camera_detection():
-    sensor.reset()
-    sensor.set_pixformat(sensor.RGB565)
-    sensor.set_framesize(sensor.QVGA)
-    sensor.skip_frames(10)
-    sensor.set_auto_gain(False)      # 固定增益
-    sensor.set_auto_whitebal(False)  # 固定白平衡
+    clock = time.clock()
+    print("持续采集并检测物体，按 Ctrl+C 停止...")
+    while True:
+        clock.tick()
+        img = sensor.snapshot()
+        result = detect_object(img)
+        if result:
+            print("检测到物体：", end=' ')
+            print("中心(u,v):", result['u_target'], result['v_target'], end='; ')
+            print("Δu:", result['delta_u'], end='; ')
+            print("d_norm:", result['d_norm'], end='; ')
+            print("面积:", result['area'], end='; ')
+            print("类型:", result['type'])
+        else:
+            print("未检测到目标物体。")
+        time.sleep(0.1)
+
+def test_image_detection():
+    import image
+    img_path = "test.jpg"  # 直接在此处指定图片路径
+    try:
+        img = image.Image(img_path)
+    except Exception as e:
+        print(f"无法读取图片: {img_path}")
+        print(e)
+        return
+    result = detect_object(img)
+    if result:
+        print("检测到物体：", end=' ')
+        print("中心(u,v):", result['u_target'], result['v_target'], end='; ')
+        print("Δu:", result['delta_u'], end='; ')
+        print("d_norm:", result['d_norm'], end='; ')
+        print("面积:", result['area'], end='; ')
+        print("类型:", result['type'])
+    else:
+        print("未检测到目标物体。")
 
     clock = time.clock()
 
@@ -138,4 +168,11 @@ def test_camera_detection():
 
 # 直接运行测试
 if __name__ == "__main__":
-    test_camera_detection()
+    # 直接在此处指定模式，无需 input。可选 'c'（摄像头）或 'i'（图片），其他为退出。
+    mode = 'i'  # 修改为 'c' 或 'i'，如 mode = 'c' 进行摄像头实时检测
+    if mode == 'c':
+        test_camera_detection()
+    elif mode == 'i':
+        test_image_detection()
+    else:
+        print("已退出。")
