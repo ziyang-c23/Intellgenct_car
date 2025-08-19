@@ -28,13 +28,14 @@ sensor.reset()
 sensor.set_pixformat(sensor.RGB565)
 sensor.set_framesize(sensor.QVGA)
 sensor.skip_frames(10)
-sensor.set_auto_whitebal(False)
+sensor.set_auto_gain(False)      # 固定增益
+sensor.set_auto_whitebal(False)  # 固定白平衡
 clock = time.clock()
 
 
 # 红色和黄色物体 LAB 阈值（可根据实际调整）
-threshold_red = [(30, 70, 20, 60, 10, 50)]
-threshold_yellow = [(60, 90, -10, 30, 40, 80)]
+threshold_red = [(15, 41, 11, 55, 4, 37)]
+threshold_yellow = [(35, 75, -12, 7, 36, 72)]
 
 
 # 物体检测主流程
@@ -48,7 +49,7 @@ def detect_object(img):
         img : OpenMV 图像对象
 
     流程：
-        1. 形态学开运算去噪（img.open(2,2)）
+        1. 形态学开运算去噪（img.open(3,3)）
         2. 分别用红色和黄色阈值进行颜色分割，得到红色和黄色的 blobs。
         3. 筛选面积大于 0.5% 图像面积的 blobs。
         4. 合并所有目标，按中心 v 坐标（y）降序排序，选取 v 最大（最靠近下方）的 blob 作为抓取目标。
@@ -63,18 +64,19 @@ def detect_object(img):
             'area'     : 目标像素面积
             'type'     : 物体类型（'red' 或 'yellow'）
     """
-    img.open(2, 2)  # 形态学去噪，去除小噪点
+    temp = img.copy()
+    temp.open(3, 3)  # 形态学去噪，去除小噪点
     img_area = img.width() * img.height()
     min_area = int(img_area * 0.005)  # 面积筛选阈值
 
     # 检测红色物体
-    red_blobs = img.find_blobs(threshold_red, pixels_threshold=30, area_threshold=30, merge=True)
+    red_blobs = temp.find_blobs(threshold_red, pixels_threshold=30, area_threshold=30, merge=True)
     red_blobs = [b for b in red_blobs if b.pixels() > min_area] if red_blobs else []
     for b in red_blobs:
         b._color_type = 'red'
 
     # 检测黄色物体
-    yellow_blobs = img.find_blobs(threshold_yellow, pixels_threshold=30, area_threshold=30, merge=True)
+    yellow_blobs = temp.find_blobs(threshold_yellow, pixels_threshold=30, area_threshold=30, merge=True)
     yellow_blobs = [b for b in yellow_blobs if b.pixels() > min_area] if yellow_blobs else []
     for b in yellow_blobs:
         b._color_type = 'yellow'
@@ -107,3 +109,33 @@ def detect_object(img):
         'area': target.pixels(),
         'type': getattr(target, '_color_type', 'unknown')
     }
+
+def test_camera_detection():
+    sensor.reset()
+    sensor.set_pixformat(sensor.RGB565)
+    sensor.set_framesize(sensor.QVGA)
+    sensor.skip_frames(10)
+    sensor.set_auto_gain(False)      # 固定增益
+    sensor.set_auto_whitebal(False)  # 固定白平衡
+
+    clock = time.clock()
+
+    print("持续采集并检测物体，按 Ctrl+C 停止...")
+    while True:
+        clock.tick()
+        img = sensor.snapshot()
+        result = detect_object(img)
+        if result:
+            print("检测到物体：", end=' ')
+            print("中心(u,v):", result['u_target'], result['v_target'], end='; ')
+            print("Δu:", result['delta_u'], end='; ')
+            print("d_norm:", result['d_norm'], end='; ')
+            print("面积:", result['area'], end='; ')
+            print("类型:", result['type'])
+        else:
+            print("未检测到目标物体。")
+        time.sleep(0.1)
+
+# 直接运行测试
+if __name__ == "__main__":
+    test_camera_detection()
