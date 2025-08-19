@@ -21,7 +21,7 @@ OpenmvDetector.py
         type 为 'red' 或 'yellow'。
 """
 
-import sensor, image, time
+import sensor, time
 
 # 摄像头配置
 sensor.reset()
