@@ -100,21 +100,35 @@ class FenceDetector:
             cv2.putText(frame, "No Fence Detected", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
         return frame
 
-    def detect(self, hsv: np.ndarray) -> Optional[np.ndarray]:
+    def detect(self, hsv: np.ndarray) -> dict:
         """
-        检测画面中的蓝色围栏区域，返回四边形顶点坐标。
+        检测画面中的蓝色围栏区域，返回包含多项信息的字典。
         参数:
             hsv: HSV格式的图像
         返回:
-            quad: 四边形顶点坐标，若未检测到则返回None
+            dict，包含如下内容：
+                - quad: 四边形顶点坐标，若未检测到则为None
+                - center: 四边形中心点坐标，若未检测到则为None
+                - area: 区域面积，若未检测到则为0
+                - contour: 最大轮廓点集，若未检测到则为None
+                - mask: 二值掩码
         """
         mask = cv2.inRange(hsv, np.array(self.r.blue_lower), np.array(self.r.blue_upper))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kernel_open, iterations=2)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel_close, iterations=1)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        result = {
+            "quad": None,
+            "center": None,
+            "area": 0,
+            "contour": None,
+            "mask": mask
+        }
         if not contours:
-            return None
+            return result
         cnt = max(contours, key=cv2.contourArea)
+        result["contour"] = cnt
+        result["area"] = cv2.contourArea(cnt)
         peri = cv2.arcLength(cnt, True)
         approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
         if len(approx) < 4:
@@ -125,7 +139,10 @@ class FenceDetector:
                 quad = contour_min_area_rect_points(hull)
             else:
                 quad = order_quad_points(approx.reshape(-1, 2))
-        return quad.astype(int)
+        quad = quad.astype(int)
+        result["quad"] = quad
+        result["center"] = tuple(np.mean(quad, axis=0).astype(int)) if quad is not None else None
+        return result
 if __name__ == "__main__":
     """
     主程序：打开摄像头，实时检测并显示围栏区域。
@@ -140,8 +157,8 @@ if __name__ == "__main__":
                 print("无法读取摄像头")
                 break
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            quad = detector.detect(hsv)
-            frame = detector.draw_results(frame, quad)
+            result = detector.detect(hsv)
+            frame = detector.draw_results(frame, result['quad'])
             cv2.imshow("Fence Detection", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):  # 按q退出
                 break
@@ -156,8 +173,8 @@ if __name__ == "__main__":
                 print(f"无法读取图片: {img_path}")
             else:
                 hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-                quad = detector.detect(hsv)
-                img = detector.draw_results(img, quad)
+                result = detector.detect(hsv)
+                img = detector.draw_results(img, result['quad'])
                 cv2.imshow("Fence Image Detection", img)
                 cv2.imwrite("Fence.jpg", img)
                 print("按任意键关闭窗口...")
