@@ -346,7 +346,7 @@ def test_camera_detection():
         # 直接进行颜色检测，跳过形态学处理
         # 检测红色物体
         red_blobs = img.find_blobs(
-            DetectorConfig.threshold_red,
+            DetectorConfig.threshold_red, # type: ignore
             pixels_threshold=min(DetectorConfig.min_pixels, int(img.width() * img.height() * DetectorConfig.area_threshold)),
             area_threshold=min(DetectorConfig.min_pixels, int(img.width() * img.height() * DetectorConfig.area_threshold)),
             merge=False,
@@ -355,7 +355,7 @@ def test_camera_detection():
         
         # 检测黄色物体
         yellow_blobs = img.find_blobs(
-            DetectorConfig.threshold_yellow,
+            DetectorConfig.threshold_yellow, # type: ignore
             pixels_threshold=min(DetectorConfig.min_pixels, int(img.width() * img.height() * DetectorConfig.area_threshold)),
             area_threshold=min(DetectorConfig.min_pixels, int(img.width() * img.height() * DetectorConfig.area_threshold)),
             merge=False,
