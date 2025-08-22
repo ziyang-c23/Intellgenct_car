@@ -65,7 +65,7 @@ OpenMV主程序：车载前视相机物体检测与通信模块
 import sensor
 import time
 from OpenmvDetector import detect_object, DetectorConfig
-from transmitter import UartTransmitter, UartConfig
+from openmv.openmv_comm import UartTransmitter, UartConfig
 
 class SystemConfig:
     """
