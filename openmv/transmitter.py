@@ -199,7 +199,7 @@ class UartTransmitter:
                              flag,           # 1字节，是否找到目标
                              u & 0xFFFF,     # 2字节，横坐标
                              v & 0xFFFF)     # 2字节，纵坐标
-        except struct.error as e:
+        except Exception as e:
             raise TransmissionError(f"数据打包失败: {str(e)}")
             
         # 计算校验和
