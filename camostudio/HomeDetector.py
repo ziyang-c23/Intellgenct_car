@@ -618,7 +618,7 @@ if __name__ == "__main__":
                 img = detector.draw_results(img, result)
                 
                 # 保存并显示
-                cv2.imwrite("Home.jpg", img)
+                cv2.imwrite("camostudio/Home.jpg", img)
                 cv2.imshow("Home Detection", img)
                 print("检测结果已保存到 Home.jpg")
                 if result and result.valid:

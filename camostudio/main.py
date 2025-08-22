@@ -734,7 +734,7 @@ def process_image(image_path: str, save_result: bool = True) -> np.ndarray:
     if save_result:
         # 生成输出文件名
         base_name = image_path.rsplit('.', 1)[0]
-        output_path = f"{base_name}_result.jpg"
+        output_path = f"{base_name}_visionsystem.jpg"
         cv2.imwrite(output_path, result)
         print(f"\n结果已保存至: {output_path}")
     

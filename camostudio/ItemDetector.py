@@ -460,7 +460,7 @@ if __name__ == "__main__":
     主程序：打开摄像头，实时检测并显示红色和黄色物体。
     按q键退出。
     """
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(2)
     detector = ItemDetector()
     if cap.isOpened():
         while True:
@@ -506,7 +506,7 @@ if __name__ == "__main__":
                 cv2.circle(img, center_point, 6, (255,0,0), -1)
                 cv2.putText(img, "Center", (center_point[0]+10, center_point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,0,0), 2)
                 cv2.imshow("Item Image Detection", img)
-                cv2.imwrite("Item.jpg", img)
+                cv2.imwrite("camostudio/Item.jpg", img)
                 print("按任意键关闭窗口...")
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()

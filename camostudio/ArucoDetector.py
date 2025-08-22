@@ -427,15 +427,10 @@ if __name__ == "__main__":
                     img = detector.draw_detections(img, markers)
                 else:
                     print("\n未检测到任何标记")
-                
-                # 保存结果
-                output_path = "result_" + img_path
-                cv2.imwrite(output_path, img)
-                print(f"\n检测结果已保存至: {output_path}")
-                
+                                
                 # 显示结果
-                cv2.imshow('ArUco Detection Result', img)
-                cv2.imwrite('ArUco.jpg', img)
+                cv2.imshow('ArUco Detection Result', img)   
+                cv2.imwrite('camostudio/ArUco.jpg', img)
                 print("\n按任意键关闭窗口...")
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()

@@ -473,7 +473,7 @@ if __name__ == "__main__":
                 img = detector.draw_results(img, result)
                 
                 # 保存并显示
-                cv2.imwrite("Fence.jpg", img)
+                cv2.imwrite("camostudio/Fence.jpg", img)
                 cv2.imshow("Fence Detection", img)
                 print("检测结果已保存到 Fence.jpg")
                 if result and result.valid:
