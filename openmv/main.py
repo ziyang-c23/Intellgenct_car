@@ -124,7 +124,7 @@ class SystemConfig:
         # 协议参数
         'header': 0x3A,             # 包头标识
         'tail': 0x0A,               # 包尾标识
-        'packet_size': 7,           # 数据包总大小 (header + flag + u + v + checksum + tail)
+        'packet_size': 11,           # 数据包总大小 (header + flag + u + v + checksum + tail)
         'pkt_format': '<BHH',       # 数据格式：flag(1B) + u(2B) + v(2B)
         'retry_count': 3,           # 重试次数
         'retry_delay': 10           # 重试延迟(ms)
@@ -221,7 +221,6 @@ def configure_system():
         DetectorConfig.area_threshold = SystemConfig.DETECTOR_CONFIG['area_threshold']
         DetectorConfig.min_pixels = SystemConfig.DETECTOR_CONFIG['min_pixels']
         DetectorConfig.merge_blobs = SystemConfig.DETECTOR_CONFIG['merge_blobs']
-        DetectorConfig.morph_kernel = SystemConfig.DETECTOR_CONFIG['morph_kernel']
         
         # 颜色检测参数
         DetectorConfig.threshold_red = SystemConfig.DETECTOR_CONFIG['threshold_red']
