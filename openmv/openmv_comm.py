@@ -12,9 +12,9 @@ OpenMV与STM32通信模块 - 基于UART的目标检测数据传输系统
 
 2. 数据包协议：
    基础包格式：
-   |  起始(1B)  |  标志(1B)  |  坐标(4B)  |  校验(1B)  |  结束(1B)  |
-   |  0x3A      |  0/1       |  x,y       |  sum       |  0x0A      |
-   
+   |  起始(1B)  |  标志(1B)  |  坐标(4B)  |  结束(1B)  |
+   |  0x3A      |  0/1       |  x,y       |  0x0A      |
+
    说明：
    - 标志位：1表示检测到目标，0表示未检测到
    - 坐标：x,y为目标中心坐标，每个坐标2字节
@@ -22,7 +22,6 @@ OpenMV与STM32通信模块 - 基于UART的目标检测数据传输系统
 
 3. 错误处理：
    - 通信超时检测
-   - 数据完整性校验
    - 自动重传机制
 
 配置参数：
@@ -37,7 +36,6 @@ UART配置：
 通信协议：
 - 包头：0x3A
 - 包尾：0x0A
-- 校验和：所有数据字节求和取低8位
 """
 
 import pyb
@@ -76,13 +74,13 @@ class UartConfig:
     BITS = 8           # 数据位
     PARITY = None      # 校验位
     STOP = 1          # 停止位
-    
+
     # 协议参数
     HEADER = 0x3A     # 起始字节
     TAIL = 0x0A      # 结束字节
-    PACKET_SIZE = 11  # 数据包总大小
+    PACKET_SIZE = 7  # 数据包总大小：起始(1) + 标志(1) + 坐标(4) + 结束(1)
     PKT_FORMAT = '<BHH'  # 数据格式：flag(1B) + u(2B) + v(2B)
-    
+
     # 超时参数
     TIMEOUT_MS = 100    # 通信超时
     RETRY_COUNT = 3     # 重试次数
@@ -98,13 +96,13 @@ class UartInitError(CommunicationError):
 class TransmissionError(CommunicationError):
     """数据传输异常"""
     pass
-        
+
 class UartTransmitter:
     """
     UART通信管理类
     -------------
     实现可靠的串口通信功能
-    
+
     主要功能：
     --------
     1. 通信管理：
@@ -114,8 +112,6 @@ class UartTransmitter:
 
     2. 数据处理：
        - 数据打包和解包
-       - 校验和计算
-       - 数据完整性验证
 
     使用方法：
     --------
@@ -129,54 +125,44 @@ class UartTransmitter:
     def __init__(self):
         """
         初始化UART通信
-        
+
         异常：
             UartInitError: UART初始化失败
         """
         try:
             self.uart = UART(UartConfig.UART_ID, UartConfig.BAUDRATE)
-            self.uart.init(UartConfig.BAUDRATE, 
+            self.uart.init(UartConfig.BAUDRATE,
                          bits=UartConfig.BITS,
-                         parity=UartConfig.PARITY, 
+                         parity=UartConfig.PARITY,
                          stop=UartConfig.STOP)
             # 等待UART稳定
             pyb.delay(100)
             self._check_uart_status()
         except Exception as e:
             raise UartInitError(f"UART初始化失败: {str(e)}")
-        
+
     def _check_uart_status(self):
         """
         检查UART状态
-        
+
         异常：
             UartInitError: UART状态异常
         """
         # 简单的回环测试
         try:
-            self.uart.write(b'test')
+            # self.uart.write(b'test')
             pyb.delay(10)
             if self.uart.any() > 0:
                 self.uart.read()  # 清空缓冲区
         except Exception as e:
             raise UartInitError(f"UART状态检查失败: {str(e)}")
-            
-    def calculate_checksum(self, data):
-        """
-        计算数据校验和
-        
-        参数：
-            data: bytes, 需要计算校验和的数据
-            
-        返回：
-            int: 校验和（1字节）
-        """
-        return sum(data) & 0xFF
-        
+
+
+
     def send_target(self, result):
         """
         发送目标检测结果
-        
+
         参数：
             result: dict, 检测结果字典
                 {
@@ -184,7 +170,7 @@ class UartTransmitter:
                     'u_target': int,         # 目标横坐标
                     'v_target': int          # 目标纵坐标
                 }
-                
+
         异常：
             TransmissionError: 数据发送失败
         """
@@ -192,7 +178,7 @@ class UartTransmitter:
         flag = 1 if result['IS_FIND_TARGET'] else 0
         u = int(result['u_target'] if result['u_target'] is not None else 0)
         v = int(result['v_target'] if result['v_target'] is not None else 0)
-        
+
         # 数据打包
         try:
             data = struct.pack(UartConfig.PKT_FORMAT,
@@ -201,16 +187,10 @@ class UartTransmitter:
                              v & 0xFFFF)     # 2字节，纵坐标
         except Exception as e:
             raise TransmissionError(f"数据打包失败: {str(e)}")
-            
-        # 计算校验和
-        checksum = self.calculate_checksum(data)
-        
+
         # 构造完整数据包
-        packet = bytes([UartConfig.HEADER]) + \
-                data + \
-                bytes([checksum]) + \
-                bytes([UartConfig.TAIL])
-                
+        packet = bytes([UartConfig.HEADER]) + data + bytes([UartConfig.TAIL])
+
         # 发送数据（带重试机制）
         for attempt in range(UartConfig.RETRY_COUNT):
             try:
@@ -222,52 +202,11 @@ class UartTransmitter:
                     raise TransmissionError(f"数据发送失败: {str(e)}")
             pyb.delay(UartConfig.RETRY_DELAY_MS)
 
-'''
-对应的STM32解包代码：
-
-#pragma pack(push, 1)
-typedef struct {
-    uint8_t  header;    // 0x3A
-    uint8_t  flag;      // 0/1
-    uint16_t u;         // 目标横坐标
-    uint16_t v;         // 目标纵坐标
-    uint8_t  checksum;  // 校验和
-    uint8_t  tail;      // 0x0A
-} __attribute__((packed)) TargetPkt_t;
-#pragma pack(pop)
-
-// 接收并解析数据
-bool receive_target(UART_HandleTypeDef *huart, TargetPkt_t *pkt) {
-    // 接收完整数据包
-    if (HAL_UART_Receive(huart, (uint8_t*)pkt, sizeof(TargetPkt_t), 100) != HAL_OK) {
-        return false;
-    }
-    
-    // 验证包头和包尾
-    if (pkt->header != 0x3A || pkt->tail != 0x0A) {
-        return false;
-    }
-    
-    // 计算并验证校验和
-    uint8_t sum = 0;
-    uint8_t *data = (uint8_t*)pkt + 1;  // 跳过header
-    for (int i = 0; i < sizeof(TargetPkt_t) - 3; i++) {  // -3跳过checksum和tail
-        sum += data[i];
-    }
-    sum &= 0xFF;
-    
-    if (sum != pkt->checksum) {
-        return false;
-    }
-    
-    return true;
-}
-'''
 
 def test_transmitter():
     """
     通信模块测试函数
-    
+
     测试项目：
     1. 基本通信功能
     2. 错误处理机制
@@ -275,7 +214,7 @@ def test_transmitter():
     """
     try:
         transmitter = UartTransmitter()
-        
+
         # 测试1：正常目标数据
         test_result1 = {
             'IS_FIND_TARGET': True,
@@ -286,7 +225,7 @@ def test_transmitter():
         print(test_result1)
         transmitter.send_target(test_result1)
         pyb.delay(500)
-        
+
         # 测试2：无目标数据
         test_result2 = {
             'IS_FIND_TARGET': False,
@@ -297,7 +236,7 @@ def test_transmitter():
         print(test_result2)
         transmitter.send_target(test_result2)
         pyb.delay(500)
-        
+
         # 测试3：边界值测试
         test_result3 = {
             'IS_FIND_TARGET': True,
@@ -307,12 +246,13 @@ def test_transmitter():
         print("\n测试3 - 发送边界值数据:")
         print(test_result3)
         transmitter.send_target(test_result3)
-        
+
     except CommunicationError as e:
         print(f"\n通信错误: {str(e)}")
     except Exception as e:
         print(f"\n未预期的错误: {str(e)}")
 
 if __name__ == '__main__':
-    test_transmitter()
+    while True:
+        test_transmitter()
 
