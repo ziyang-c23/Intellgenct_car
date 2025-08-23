@@ -60,8 +60,8 @@ all: main-build
 main-build: STM32_ALL.elf secondary-outputs
 
 # Tool invocations
-STM32_ALL.elf STM32_ALL.map: $(OBJS) $(USER_OBJS) C:\Users\faye\Documents\Intelligent_Electromechanical_System_Practice\Intellgenct_car\STM32_ALL\STM32F103VETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "STM32_ALL.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"C:\Users\faye\Documents\Intelligent_Electromechanical_System_Practice\Intellgenct_car\STM32_ALL\STM32F103VETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="STM32_ALL.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+STM32_ALL.elf STM32_ALL.map: $(OBJS) $(USER_OBJS) D:\学习\2025\ 夏\小学期\大作业\STM\stm文件\STM32_ALL\STM32F103VETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "STM32_ALL.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"D:\学习\2025 夏\小学期\大作业\STM\stm文件\STM32_ALL\STM32F103VETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="STM32_ALL.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
