@@ -240,12 +240,24 @@ def test_transmitter():
         # 测试3：边界值测试
         test_result3 = {
             'IS_FIND_TARGET': True,
-            'u_target': 0,
-            'v_target': 0,
+            'u_target': 319,
+            'v_target': 239,
         }
         print("\n测试3 - 发送边界值数据:")
         print(test_result3)
         transmitter.send_target(test_result3)
+        pyb.delay(500)
+
+        # 测试4：边界值测试
+        test_result4 = {
+            'IS_FIND_TARGET': True,
+            'u_target': 0,
+            'v_target': 0,
+        }
+        print("\n测试4 - 发送边界值数据:")
+        print(test_result4)
+        transmitter.send_target(test_result4)
+        pyb.delay(500)
 
     except CommunicationError as e:
         print(f"\n通信错误: {str(e)}")
