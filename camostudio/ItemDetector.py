@@ -460,7 +460,7 @@ if __name__ == "__main__":
     主程序：打开摄像头，实时检测并显示红色和黄色物体。
     按q键退出。
     """
-    cap = cv2.VideoCapture(2)
+    cap = cv2.VideoCapture(0)
     detector = ItemDetector()
     if cap.isOpened():
         while True:

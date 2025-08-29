@@ -158,11 +158,13 @@ class HomeConfig:
         - 宽高比和角度阈值影响检测的严格程度
     """
     # HSV颜色范围
-    black_lower: tuple = (0, 0, 0)
-    black_upper: tuple = (180, 255, 50)
+    # black_lower: tuple = (0, 0, 0)
+    # black_upper: tuple = (180, 255, 50)
+    black_lower: tuple = (35, 50, 50)  # 绿色下界
+    black_upper: tuple = (85, 255, 255)  # 绿色上界
     # 面积范围（像素）
-    min_area: int = 1000
-    max_area: int = 100000
+    min_area: int = 100
+    max_area: int = 1000000
     # 宽高比范围
     aspect_ratio_range: tuple = (0.5, 2.0)
     # 角度阈值（度）
@@ -578,7 +580,7 @@ if __name__ == "__main__":
     detector = HomeDetector(config)
     
     # 尝试打开摄像头
-    cap = cv2.VideoCapture(2)
+    cap = cv2.VideoCapture(0)
     if cap.isOpened():
         print("已打开摄像头，开始实时检测...")
         while True:

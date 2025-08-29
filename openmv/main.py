@@ -65,7 +65,7 @@ OpenMV主程序：车载前视相机物体检测与通信模块
 import sensor
 import time
 from OpenmvDetector import detect_object, DetectorConfig
-from openmv.openmv_comm import UartTransmitter, UartConfig
+from openmv_comm import UartTransmitter, UartConfig
 
 class SystemConfig:
     """
@@ -98,17 +98,17 @@ class SystemConfig:
     # 视觉检测器配置
     DETECTOR_CONFIG = {
         # 目标检测参数
-        'area_threshold': 0.00005,  # 最小面积比例（占图像面积的0.005%）
-        'min_pixels': 5,            # 最小像素数（滤除噪点）
+        'area_threshold': 0.001,  # 最小面积比例（占图像面积的0.1%）
+        'min_pixels': 100,            # 最小像素数（滤除噪点）
         'merge_blobs': True,        # 合并相邻区域
-        
+
         # 颜色检测参数 (LAB颜色空间)
         'threshold_red': [(20, 80, 15, 70, -20, 40)],      # 红色阈值
         'threshold_yellow': [(50, 100, -30, 20, 25, 75)],  # 黄色阈值
-        
+
         # 距离计算参数
         'v_min_ratio': 0.1,         # 最远可见位置（图像顶部10%）
-        'v_max_ratio': 0.9,         # 最近可见位置（图像底部90%）
+        'v_max_ratio': 0.75,         # 最近可见位置（图像底部75%）
     }
 
     # 通信系统配置
@@ -119,15 +119,12 @@ class SystemConfig:
         'bits': 8,                  # 数据位
         'parity': None,             # 校验位
         'stop': 1,                  # 停止位
-        'timeout': 100,             # 通信超时(ms)
-        
+        'cycle': 100,               # 通信周期(ms)
         # 协议参数
-        'header': 0x3A,             # 包头标识
-        'tail': 0x0A,               # 包尾标识
-        'packet_size': 11,           # 数据包总大小 (header + flag + u + v + checksum + tail)
+        'header': 0xFF,             # 包头标识
+        'tail': 0xF0,               # 包尾标识
+        'packet_size': 7,           # 数据包总大小 (header + flag + u + v + checksum + tail)
         'pkt_format': '<BHH',       # 数据格式：flag(1B) + u(2B) + v(2B)
-        'retry_count': 3,           # 重试次数
-        'retry_delay': 10           # 重试延迟(ms)
     }
 
     # 摄像头系统配置
@@ -136,11 +133,11 @@ class SystemConfig:
         'pixformat': sensor.RGB565,  # 像素格式
         'framesize': sensor.QVGA,    # 分辨率 (320x240)
         'windowing': None,           # 窗口裁剪
-        
+
         # 性能参数
         'skip_frames': 10,           # 跳过帧数（等待相机稳定）
         'fps_max': 30,              # 最大帧率
-        
+
         # 传感器参数
         'auto_gain': True,           # 自动增益
         'auto_whitebal': False,      # 自动白平衡
@@ -184,32 +181,32 @@ def init_camera():
 def configure_system():
     """
     配置系统参数
-    
+
     功能：
         统一配置所有子系统的参数，确保系统协调工作。
-    
+
     配置流程：
         1. 视觉检测系统配置：
            - 检测参数：面积、像素阈值
            - 处理参数：形态学操作
            - 颜色参数：LAB阈值范围
            - 距离参数：视野范围设置
-        
+
         2. 通信系统配置：
            - 串口参数：端口、波特率等
            - 协议参数：数据包格式
            - 校验参数：包头包尾、校验和
-        
+
         3. 摄像头系统配置：
            - 基本参数：格式、分辨率
            - 性能参数：帧率、缓存
            - 图像参数：对比度、亮度
-    
+
     错误处理：
         - 参数验证：确保在有效范围
         - 依赖检查：检查必要组件
         - 异常处理：优雅降级策略
-    
+
     注意事项：
         - 参数同步：确保各模块配置一致
         - 性能平衡：在功能和性能间权衡
@@ -221,29 +218,29 @@ def configure_system():
         DetectorConfig.area_threshold = SystemConfig.DETECTOR_CONFIG['area_threshold']
         DetectorConfig.min_pixels = SystemConfig.DETECTOR_CONFIG['min_pixels']
         DetectorConfig.merge_blobs = SystemConfig.DETECTOR_CONFIG['merge_blobs']
-        
+
         # 颜色检测参数
         DetectorConfig.threshold_red = SystemConfig.DETECTOR_CONFIG['threshold_red']
         DetectorConfig.threshold_yellow = SystemConfig.DETECTOR_CONFIG['threshold_yellow']
-        
+
         # 距离计算参数
         DetectorConfig.v_min_ratio = SystemConfig.DETECTOR_CONFIG['v_min_ratio']
         DetectorConfig.v_max_ratio = SystemConfig.DETECTOR_CONFIG['v_max_ratio']
-        
+
         # 2. 配置通信系统
         # 硬件参数
         UartConfig.UART_ID = SystemConfig.UART_CONFIG['uart_id']
         UartConfig.BAUDRATE = SystemConfig.UART_CONFIG['baudrate']
-        
+
         # 协议参数
         UartConfig.HEADER = SystemConfig.UART_CONFIG['header']
         UartConfig.TAIL = SystemConfig.UART_CONFIG['tail']
         UartConfig.PACKET_SIZE = SystemConfig.UART_CONFIG['packet_size']
         UartConfig.PKT_FORMAT = SystemConfig.UART_CONFIG['pkt_format']
-        
+
         print("系统配置完成")
         return True
-        
+
     except Exception as e:
         print("配置错误:", str(e))
         return False
@@ -254,43 +251,43 @@ def print_system_info():
     显示所有子系统的当前配置状态
     """
     print("\n========= 系统配置信息 =========")
-    
+
     # 1. 视觉检测系统配置
     print("\n[视觉检测系统]")
     print("目标检测参数:")
     print("  - 最小面积比例:", DetectorConfig.area_threshold)
     print("  - 最小像素数:", DetectorConfig.min_pixels)
     print("  - 合并相邻区域:", DetectorConfig.merge_blobs)
-    
+
     print("图像处理参数:")
     print("  - 最小像素数:", DetectorConfig.min_pixels)
-    
+
     print("距离计算参数:")
     print("  - 最远可见位置:", DetectorConfig.v_min_ratio)
     print("  - 最近可见位置:", DetectorConfig.v_max_ratio)
-    
+
     # 2. 通信系统配置
     print("\n[通信系统]")
     print("硬件参数:")
     print("  - 串口号: UART", UartConfig.UART_ID)
     print("  - 波特率:", UartConfig.BAUDRATE)
-    
+
     print("协议参数:")
     print("  - 包头/包尾: 0x%02X/0x%02X" % (UartConfig.HEADER, UartConfig.TAIL))
     print("  - 数据包大小:", UartConfig.PACKET_SIZE, "字节")
     print("  - 数据格式:", UartConfig.PKT_FORMAT)
-    
+
     # 3. 摄像头系统配置
     print("\n[摄像头系统]")
     print("图像参数:")
     print("  - 分辨率: QVGA (320x240)")
     print("  - 像素格式: RGB565")
-    
+
     print("传感器参数:")
     print("  - 自动增益:", SystemConfig.CAMERA_CONFIG['auto_gain'])
     print("  - 自动白平衡:", SystemConfig.CAMERA_CONFIG['auto_whitebal'])
     print("  - 跳帧数:", SystemConfig.CAMERA_CONFIG['skip_frames'])
-    
+
     print("\n================================\n")
 
 def process_detection_result(result, transmitter):
@@ -336,7 +333,7 @@ def process_detection_result(result, transmitter):
             'v_target': result['v_target']
         }
         transmitter.send_target(transmit_data)
-        
+
         if result['IS_FIND_TARGET']:
             print("找到目标 - u: %d, v: %d" % (
                 result['u_target'],
@@ -422,7 +419,7 @@ def main():
             # 检测物体并处理结果
             result = detect_object(img)
             process_detection_result(result, transmitter)
-
+            time.sleep_ms(SystemConfig.UART_CONFIG['cycle'])  # 稍作延时，避免过快循环
             # 打印帧率
             print("FPS: %.1f" % clock.fps())
 

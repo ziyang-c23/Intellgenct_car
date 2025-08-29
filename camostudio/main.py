@@ -6,54 +6,66 @@
 1. 系统集成
     - 整合所有检测器（ArUco、围栏、家、物体）
     - 统一的图像处理流程
-    - 集中的结果管理和展示
+    - 集中的结果管理和通信接口
 
 2. 实时检测功能
-    - ArUco标记检测：确定车体位置和朝向
-    - 围栏检测：识别蓝色围栏区域
-    - 家区域检测：识别黑色返回区域
-    - 物体检测：识别红色和黄色目标物体
+    - ArUco标记检测：确定车体位置和朝向（提供全局坐标系）
+    - 围栏检测：识别蓝色围栏区域（场地边界）
+    - 家区域检测：识别黑色返回区域（任务终点）
+    - 物体检测：识别红色和黄色目标物体（任务目标）
 
 3. 导航辅助
-    - 计算车体与目标物体的相对位置
-    - 提供实时距离和角度信息
+    - 计算车体与目标物体的相对位置（角度和距离）
     - 自动选择最近目标物体
+    - 提供到家区域的导航信息
 
 4. 可视化与调试
-    - 实时显示检测结果
+    - 实时显示检测结果和导航引导线
     - 支持图片测试模式
-    - 提供详细的状态信息
+    - 提供详细的状态信息和性能指标
+
+5. 通信接口
+    - 与STM32控制器实时通信
+    - 发送结构化数据包
+    - 支持错误处理和异常恢复
+
+坐标系说明：
+    - 图像坐标系：原点在左上角，X轴向右，Y轴向下
+    - 角度定义：0°指向右侧，逆时针增加为正方向
+    - 相对角度：以车头朝向为0°，右侧为正，左侧为负，范围[-180°, 180°]
 
 使用方法：
     1. 摄像头模式：python main.py
     2. 图片测试：python main.py -i <图片路径>
     3. 指定摄像头：python main.py -c <摄像头ID>
+    4. 调试模式：python main.py --debug
 """
 
 import cv2
+import time
 import numpy as np
 from ArucoDetector import ArucoDetector
 from FenceDetector import FenceDetector
 from HomeDetector import HomeDetector
 from ItemDetector import ItemDetector
+from camostudio_comm import open_serial, close_serial, send_camostudio_data, SerialCommError
 from typing import Dict, List, Optional, Tuple
 
 
-def extract_vision_data(vision_results: Dict) -> Optional[Dict[str, int]]:
+def extract_vision_data(vision_results: Dict) -> Dict[str, int]:
     """
     从视觉检测结果中提取需要传输的关键数据，并转换为整数格式
     
-    提取信息：
-    1. 围栏四个顶点坐标 (8个整数: x1,y1,x2,y2,x3,y3,x4,y4)
-        - 顺时针顺序
-        - 坐标原点在图像左上角
-        - x向右为正，y向下为正
+    数据处理过程:
+    1. 从检测结果字典中提取各类信息
+    2. 转换为适合通信的整数格式
+    3. 对无效数据设置特定值
     
-    2. 目标区域中心点 (2个整数: home_x, home_y)
-        - 坐标系与顶点相同
-        - 用于定位返回位置
+    主要数据项:
+    1. 检测到的物体数量 (1个整数: SEARCH_OBJ_NUM)
+        - 范围：[0, N]，表示当前视野中识别到的目标物体数量
     
-    3. 相对最近物体的方位角 (1个整数: angle)
+    2. 相对最近物体的方位角 (1个整数: item_angle)
         - 乘以10以保留一位小数精度
         - 范围：[-1800, 1800]，对应[-180.0°, 180.0°]
         - 相对车头方向的角度：
@@ -61,38 +73,64 @@ def extract_vision_data(vision_results: Dict) -> Optional[Dict[str, int]]:
           * 90° = 右侧
           * -90° = 左侧
           * ±180° = 后方
-        - 无效值：-3600（-360.0°）
+        - 无效值：0（表示没有有效角度数据）
     
-    4. 到最近物体的距离 (1个整数: distance)
+    3. 到最近物体的距离 (1个整数: item_distance)
         - 单位：像素
         - 从车体中心（ArUco标记中心）到目标物体中心的直线距离
-        - 无效值：9999
+        - 无效值：0（表示没有有效距离数据）
+        
+    4. 到家的相对方位角 (1个整数: home_angle)
+        - 乘以10以保留一位小数精度
+        - 范围：[-1800, 1800]，对应[-180.0°, 180.0°]
+        - 无效值：0（表示没有有效角度数据）
+    
+    5. 到家的距离 (1个整数: home_distance)
+        - 单位：像素
+        - 从车体中心（ArUco标记中心）到家中心的直线距离
+        - 无效值：0（表示没有有效距离数据）
+        
+    6. 物体是否超出内收矩形区域 (1个整数: item_out_of_bounds)
+        - 0 = 未超出区域
+        - 1 = 超出区域
+        - 当物体超出内收矩形区域时，视觉系统会将目标点调整到内收矩形边界上
+        - 无效值：0（表示没有有效的物体或物体在内收矩形内）
     
     参数:
         vision_results: 包含所有检测结果的字典，包括：
-            - fence: 围栏信息
-            - home: 目标区域信息
+            - items: 检测到的物体列表
             - navigation: 导航信息（车辆位置和目标相对位置）
     
     返回:
-        成功时返回包含处理后整数数据的字典：
+        Dict[str, int]: 包含处理后整数数据的字典：
         {
-            'fence_x1': int, 'fence_y1': int,  # 围栏顶点1，像素坐标
-            'fence_x2': int, 'fence_y2': int,  # 围栏顶点2，像素坐标
-            'fence_x3': int, 'fence_y3': int,  # 围栏顶点3，像素坐标
-            'fence_x4': int, 'fence_y4': int,  # 围栏顶点4，像素坐标
-            'home_x': int, 'home_y': int,      # 目标区域中心，像素坐标
-            'angle': int,                      # 相对角度*10，范围[-1800,1800]
-            'distance': int                    # 像素距离，无效时=9999
+            'SEARCH_OBJ_NUM': int,      # 当前检测到的物体数量
+            'fence_x1': int, ...,       # 围栏四个顶点的x坐标
+            'fence_y1': int, ...,       # 围栏四个顶点的y坐标
+            'home_x': int, 'home_y': int, # 家区域中心点坐标
+            'item_angle': int,          # 到物体的相对角度*10，范围[-1800,1800]
+            'item_distance': int,       # 到物体的像素距离，无效时=0
+            'home_angle': int,          # 到家的相对角度*10，范围[-1800,1800]
+            'home_distance': int,       # 到家的像素距离，无效时=0
+            'item_out_of_bounds': int   # 物体是否超出内收矩形区域，0=否，1=是
         }
         
-        失败时返回None：
-            - 找不到围栏
-            - 找不到目标区域
-            - 数据格式错误
+        注意：当处理失败或数据无效时，会返回所有值为0的字典，而不是返回None
     """
     try:
-        result = {}
+        result = {
+            'SEARCH_OBJ_NUM': 0,
+            'fence_x1': 0, 'fence_y1': 0,
+            'fence_x2': 0, 'fence_y2': 0,
+            'fence_x3': 0, 'fence_y3': 0,
+            'fence_x4': 0, 'fence_y4': 0,
+            'home_x': 0, 'home_y': 0,
+            'item_angle': 0,
+            'item_distance': 0,
+            'home_angle': 0,
+            'home_distance': 0,
+            'item_out_of_bounds': 0  # 表示最近物体是否超出内收矩形区域，0=否，1=是
+        }
         
         # 1. 提取围栏顶点（按顺时针顺序）
         if vision_results['fence'] and vision_results['fence'].quad is not None:
@@ -103,7 +141,7 @@ def extract_vision_data(vision_results: Dict) -> Optional[Dict[str, int]]:
                 result[f'fence_x{i+1}'] = int(round(x))
                 result[f'fence_y{i+1}'] = int(round(y))
         else:
-            return None
+            print("警告: 未检测到有效围栏")
             
         # 2. 提取目标区域（家）中心点
         if vision_results['home'] and vision_results['home'].center:
@@ -111,27 +149,60 @@ def extract_vision_data(vision_results: Dict) -> Optional[Dict[str, int]]:
             result['home_x'] = int(round(hx))
             result['home_y'] = int(round(hy))
         else:
-            return None
-            
-        # 3. 提取导航信息中的相对位置
+            print("警告: 未检测到有效家区域")
+
+        result['SEARCH_OBJ_NUM'] = len(vision_results['items'])
+
+        # 3. 提取到最近物体的的相对位置
         nav_info = vision_results['navigation']
-        if nav_info['relative_angle'] is not None and nav_info['distance'] is not None:
+        if nav_info['item_relative_angle'] is not None and nav_info['item_distance'] is not None:
             # 相对角度（乘以10以保留一位小数）
-            angle = nav_info['relative_angle']
-            result['angle'] = int(round(angle * 10))
+            angle = nav_info['item_relative_angle']
+            result['item_angle'] = int(round(angle * 10))
             
             # 距离（像素）
-            result['distance'] = int(round(nav_info['distance']))
+            result['item_distance'] = int(round(nav_info['item_distance']))
+            
+            # 设置是否超出内收矩形区域的标志
+            if nav_info['nearest_item'] and 'out_of_bounds' in nav_info['nearest_item']:
+                result['item_out_of_bounds'] = 1 if nav_info['nearest_item']['out_of_bounds'] else 0
         else:
-            # 没有有效的导航信息
-            result['angle'] = -3600  # -360度 * 10，表示无效角度
-            result['distance'] = 9999  # 表示无效距离
+            # 没有有效的导航信息，将无效值设为0
+            result['item_angle'] = 0  # 无效角度设为0
+            result['item_distance'] = 0  # 无效距离设为0
+            result['item_out_of_bounds'] = 0  # 无效物体超界标志为0
+            
+        # 4. 提取到家的相对位置信息
+        if nav_info['home_relative_angle'] is not None and nav_info['home_distance'] is not None:
+            # 相对角度（乘以10以保留一位小数）
+            home_angle = nav_info['home_relative_angle']
+            result['home_angle'] = int(round(home_angle * 10))
+            
+            # 距离（像素）
+            result['home_distance'] = int(round(nav_info['home_distance']))
+        else:
+            # 没有有效的导航信息，将无效值设为0
+            result['home_angle'] = 0  # 无效角度设为0
+            result['home_distance'] = 0  # 无效距离设为0
             
         return result
         
     except Exception as e:
         print(f"数据提取错误: {str(e)}")
-        return None
+        # 出现异常时返回所有值为0的字典，确保通信不会因为None而出错
+        return {
+            'SEARCH_OBJ_NUM': 0,
+            'fence_x1': 0, 'fence_y1': 0,
+            'fence_x2': 0, 'fence_y2': 0,
+            'fence_x3': 0, 'fence_y3': 0,
+            'fence_x4': 0, 'fence_y4': 0,
+            'home_x': 0, 'home_y': 0,
+            'item_angle': 0,
+            'item_distance': 0,
+            'home_angle': 0,
+            'home_distance': 0,
+            'item_out_of_bounds': 0
+        }
 
 
 class VisionSystem:
@@ -141,14 +212,25 @@ class VisionSystem:
     该类整合了所有检测器，实现了完整的视觉处理流程，包括：
     1. 图像获取和预处理
     2. 多目标检测和识别
-    3. 结果分析和计算
-    4. 可视化显示
+    3. 结果分析和位置计算
+    4. 导航数据生成
+    5. 通信数据封装
+    6. 可视化显示
     
     主要组件：
-        - ArUco检测器：识别定位标记
-        - 围栏检测器：识别场地边界
-        - 家检测器：识别返回区域
-        - 物体检测器：识别目标物体
+        - ArUco检测器：识别定位标记，提供全局位置和朝向
+        - 围栏检测器：识别蓝色场地边界，提供环境范围
+        - 家检测器：识别黑色返回区域，提供导航终点
+        - 物体检测器：识别红色和黄色目标物体，提供任务目标
+        
+    数据流程：
+        1. 获取图像 → 2. 运行检测器 → 3. 整合结果
+        4. 计算导航信息 → 5. 封装通信数据 → 6. 发送至控制器
+        
+    坐标系说明：
+        - 图像坐标系：原点在左上角，X轴向右，Y轴向下
+        - 角度定义：0°指向右侧，逆时针为正
+        - 相对角度：以车头方向为基准，右侧为正，左侧为负
     """
     
     def __init__(self):
@@ -157,9 +239,19 @@ class VisionSystem:
         
         完成以下初始化工作：
         1. 创建各个检测器实例
-        2. 初始化结果存储字典
-        3. 设置性能计数器（FPS）
-        4. 初始化位置跟踪变量
+           - ArUco检测器：识别标记ID和位置
+           - 围栏检测器：基于HSV颜色空间识别蓝色区域
+           - 家检测器：基于HSV颜色空间识别黑色区域
+           - 物体检测器：基于HSV颜色空间识别红色和黄色物体
+           
+        2. 初始化结果存储结构
+           - 使用嵌套字典统一管理检测结果
+           - 包含原始检测数据和计算的导航信息
+           - 设置所有值的默认状态为None或空列表
+           
+        3. 设置性能计数器
+           - 帧率计算器
+           - 执行时间统计
         """
         self.aruco_detector = ArucoDetector()
         self.fence_detector = FenceDetector()
@@ -195,6 +287,8 @@ class VisionSystem:
             # - area: float - 物体面积（像素）
             # - aspect_ratio: float - 宽高比
             # - valid: bool - 物体是否有效
+            # - out_of_bounds: bool - 物体是否超出内收矩形范围
+            # - adjusted_center: Tuple[float, float] - 调整后的中心坐标（仅当out_of_bounds=True时）
             'items': [],      
             
             # 导航相关信息
@@ -205,11 +299,16 @@ class VisionSystem:
                 
                 # 最近目标物体信息
                 'nearest_item': None,     # Dict - 参考items中的物体格式
+                                          # 增加了distance_px、out_of_bounds和adjusted_center字段
                 
                 # 相对位置信息（相对于车头方向）
-                'relative_angle': None,   # float - 相对方位角（度数），范围[-180, 180]
+                'item_relative_angle': None,   # float - 相对方位角（度数），范围[-180, 180]
                                         # 正值表示目标在车头右侧，负值表示在左侧
-                'distance': None          # float - 相对距离（像素）
+                'item_distance': None,         # float - 相对距离（像素）
+                
+                # 到家的相对位置信息
+                'home_relative_angle': None,  # float - 到家的相对方位角（度数），范围[-180, 180]
+                'home_distance': None         # float - 到家的相对距离（像素）
             }
         }
         
@@ -220,15 +319,18 @@ class VisionSystem:
         """
         寻找距离小车最近的有效物体，并更新导航信息
         
-        处理流程：
+        算法流程：
         1. 检查必要条件：
            - 车辆位置信息存在（通过ArUco标记检测获得）
            - 检测到的物体列表不为空
+           - 检测到有效的围栏内收矩形
            
         2. 计算每个物体到车辆的距离：
            - 仅考虑有效的物体（valid=True）
+           - 如果物体超出围栏内收矩形范围，则将坐标缩小到矩形边界上
            - 计算欧氏距离：sqrt((x_car - x_item)^2 + (y_car - y_item)^2)
            - 对每个物体添加distance_px字段存储距离值
+           - 对超出内收矩形的物体添加out_of_bounds标识
            
         3. 选择最近的物体：
            - 按距离升序排序
@@ -243,12 +345,14 @@ class VisionSystem:
               * area: float - 面积
               * distance_px: float - 到车体的距离
               * valid: bool - 是否有效
+              * out_of_bounds: bool - 是否超出内收矩形范围
+              * adjusted_center: Tuple[float, float] - 调整后的中心坐标（如果在边界外）
               如果没有找到有效物体，设为None
         
         注意事项：
             - 距离计算使用像素坐标系
-            - 坐标原点在图像左上角
-            - 所有浮点数保持原始精度，不进行取整
+            - 优先级不考虑物体类型（红色/黄色）
+            - 对超出内收矩形范围的物体进行特殊处理，以便避障
         """
         nav_info = self.results['navigation']
         
@@ -260,6 +364,11 @@ class VisionSystem:
         # 提取车辆位置
         u_car, v_car = nav_info['car_pos']
         
+        # 提取围栏内收矩形（如果存在）
+        inner_rect = None
+        if self.results['fence'] and self.results['fence'].valid:
+            inner_rect = self.results['fence'].inner_rect
+        
         # 计算每个有效物体的距离
         valid_items = []
         for item in self.results['items']:
@@ -267,11 +376,41 @@ class VisionSystem:
                 continue
                 
             u_item, v_item = item['center']
+            out_of_bounds = False
+            adjusted_center = (u_item, v_item)  # 默认不调整
+            
+            # 检查物体是否超出内收矩形范围，如果是则调整坐标
+            if inner_rect:
+                x1, y1, x2, y2 = inner_rect  # 内收矩形的左上角和右下角坐标
+                
+                # 调整x坐标（如果超出范围）
+                if u_item < x1:
+                    u_item = x1
+                    out_of_bounds = True
+                elif u_item > x2:
+                    u_item = x2
+                    out_of_bounds = True
+                    
+                # 调整y坐标（如果超出范围）
+                if v_item < y1:
+                    v_item = y1
+                    out_of_bounds = True
+                elif v_item > y2:
+                    v_item = y2
+                    out_of_bounds = True
+                    
+                # 如果坐标被调整，保存调整后的坐标
+                if out_of_bounds:
+                    adjusted_center = (u_item, v_item)
+            
+            # 计算距离（使用调整后的坐标）
             dist = np.sqrt((u_item - u_car)**2 + (v_item - v_car)**2)
             
             valid_items.append({
                 **item,
-                'distance_px': dist  # 统一使用distance_px作为距离字段
+                'distance_px': dist,  # 统一使用distance_px作为距离字段
+                'out_of_bounds': out_of_bounds,  # 标记是否超出内收矩形
+                'adjusted_center': adjusted_center  # 保存调整后的坐标
             })
             
         # 按距离排序并选择最近的
@@ -281,28 +420,31 @@ class VisionSystem:
         else:
             nav_info['nearest_item'] = None
 
-    def compute_relative_position(self):
+    def compute_item_relative_position(self):
         """
         计算小车到最近物体的相对方位信息
         
-        计算过程：
-        1. 方位计算
-           - 计算物体相对车体的方位角β
-           - β = α - θ（α为物体绝对方位角，θ为车头朝向）
-           - 结果归一化到[-180, 180]范围内
+        计算原理：
+        1. 位移向量计算
+           - 计算物体相对车体的位移向量(Δu, Δv)
+           - Δu = u_item - u_car（水平位移）
+           - Δv = v_item - v_car（垂直位移）
+           - 如果物体超出内收矩形范围，使用调整后的坐标
         
-        2. 距离计算
-           - 计算车辆到物体的直线距离（像素单位）
-           - 使用欧氏距离：sqrt((Δu)² + (Δv)²)
+        2. 方位角计算
+           - 计算物体相对车体的绝对方位角α = arctan2(Δv, Δu)
+           - 计算相对方位角β = α - θ（θ为车头朝向）
+           - 结果归一化到[-180°, 180°]范围内
+           - 正值表示物体在车头右侧，负值表示在左侧
         
-        3. 位移分析
-           - 计算(Δu, Δv)位移向量
-           - 用于后续路径规划
+        3. 距离计算
+           - 计算车辆到物体的直线距离d = sqrt(Δu² + Δv²)
+           - 单位为像素
            
-        注意事项：
-        - 所有角度使用度数（degrees）
-        - 距离以像素为单位
-        - 确保车辆位置和朝向信息有效
+        应用场景：
+        - 导航决策：确定转向方向和角度
+        - 路径规划：避障和目标接近
+        - 通信发送：提供给STM32控制器的导航数据
             
         返回:
             Dict: 包含相对方位信息的字典，无法计算时返回None
@@ -321,11 +463,83 @@ class VisionSystem:
             
         # 提取坐标
         u_car, v_car = nav_info['car_pos']
-        u_item, v_item = nav_info['nearest_item']['center']
+        
+        # 获取物体坐标 - 如果物体超出内收矩形，使用调整后的坐标
+        nearest_item = nav_info['nearest_item']
+        if nearest_item.get('out_of_bounds', False) and 'adjusted_center' in nearest_item:
+            u_item, v_item = nearest_item['adjusted_center']
+        else:
+            u_item, v_item = nearest_item['center']
         
         # 计算位移向量
         delta_u = float(u_item - u_car)
         delta_v = float(v_item - v_car)
+        
+        # 计算绝对方位角（度数）
+        angle = np.degrees(np.arctan2(delta_v, delta_u))
+        
+        # 计算相对方位角（度数）
+        relative_angle = angle - nav_info['car_angle']
+        # 归一化到 [-180, 180]
+        relative_angle = (relative_angle + 180) % 360 - 180
+        
+        # 计算距离
+        distance = np.hypot(delta_u, delta_v)
+        
+        # 返回计算结果
+        return {
+            'relative_angle_deg': float(relative_angle),
+            'distance_px': float(distance),
+            'delta_uv': (delta_u, delta_v)
+        }
+
+    def compute_home_relative_position(self):
+        """
+        计算小车到家的相对方位信息
+        
+        计算原理：
+        1. 位移向量计算
+           - 计算家相对车体的位移向量(Δu, Δv)
+           - Δu = u_home - u_car（水平位移）
+           - Δv = v_home - v_car（垂直位移）
+        
+        2. 方位角计算
+           - 计算家相对车体的绝对方位角α = arctan2(Δv, Δu)
+           - 计算相对方位角β = α - θ（θ为车头朝向）
+           - 结果归一化到[-180°, 180°]范围内
+           - 正值表示家在车头右侧，负值表示在左侧
+        
+        3. 距离计算
+           - 计算车辆到家的直线距离d = sqrt(Δu² + Δv²)
+           - 单位为像素
+           
+        应用场景：
+        - 任务完成后返回家的导航
+        - 定位状态评估
+        - 通信发送：提供给STM32控制器的导航数据
+            
+        返回:
+            Dict: 包含相对方位信息的字典，无法计算时返回None
+                - relative_angle_deg: float, 相对方位角（度）
+                - distance_px: float, 像素距离
+                - delta_uv: Tuple[float, float], 位移向量
+        """
+        nav_info = self.results['navigation']
+        
+        # 验证必要条件
+        if (not nav_info['car_pos'] or 
+            nav_info['car_angle'] is None or 
+            not self.results['home'] or 
+            not self.results['home'].center):
+            return None
+            
+        # 提取坐标
+        u_car, v_car = nav_info['car_pos']
+        u_home, v_home = self.results['home'].center
+        
+        # 计算位移向量
+        delta_u = float(u_home - u_car)
+        delta_v = float(v_home - v_car)
         
         # 计算绝对方位角（度数）
         angle = np.degrees(np.arctan2(delta_v, delta_u))
@@ -383,8 +597,12 @@ class VisionSystem:
               - 查找最近的有效物体
               - 计算相对方位角（[-180°, 180°]）
               - 计算直线距离（像素）
+              
+           c) 家位置分析
+              - 计算车辆到家的相对方位角
+              - 计算车辆到家的直线距离
            
-           c) 数据提取
+           d) 数据提取
               - 处理所有结果为整数格式
               - 准备用于传输的数据包
         
@@ -393,32 +611,21 @@ class VisionSystem:
            - 显示导航引导线
            - 添加状态信息和帧率
         
-        参数说明：
+        参数:
             frame: BGR格式的输入图像帧
                 - shape: (height, width, 3)
                 - dtype: uint8
                 - 范围: [0, 255]
             
-        返回值：
-            numpy.ndarray: 处理后的图像帧
+        返回:
+            np.ndarray: 处理后的图像帧
                 - 包含可视化的检测和导航结果
                 - 与输入图像相同的尺寸和格式
         
-        注意事项：
-            - 坐标系统：
-              * 原点：图像左上角
-              * X轴：向右为正
-              * Y轴：向下为正
-              
-            - 角度定义：
-              * 车头朝向：相对图像X轴的角度
-              * 相对方位角：相对车头方向的角度
-              * 所有角度均使用度数，范围[-180°, 180°]
-            
-            - 异常处理：
-              * 各检测器独立工作，单个失败不影响其他
-              * 导航计算在缺少必要数据时返回无效值
-              * 所有异常都被捕获并记录
+        注意事项:
+            - 处理顺序很重要，ArUco检测必须先于其他检测
+            - 导航计算依赖于检测结果的有效性
+            - 可视化部分不影响结果计算，仅用于调试
         """
         if frame is None:
             return None
@@ -459,18 +666,34 @@ class VisionSystem:
         # 如果找到有效物体，计算相对位置
         if nav_info['nearest_item'] is not None:
             # 计算相对位置并更新导航信息
-            pos_info = self.compute_relative_position()
+            pos_info = self.compute_item_relative_position()
             if pos_info:
-                nav_info['relative_angle'] = pos_info['relative_angle_deg']
-                nav_info['distance'] = pos_info['distance_px']
+                nav_info['item_relative_angle'] = pos_info['relative_angle_deg']
+                nav_info['item_distance'] = pos_info['distance_px']
             else:
-                nav_info['relative_angle'] = None
-                nav_info['distance'] = None
+                nav_info['item_relative_angle'] = None
+                nav_info['item_distance'] = None
+        
+        # 计算到家的相对位置
+        home_pos_info = self.compute_home_relative_position()
+        if home_pos_info:
+            nav_info['home_relative_angle'] = home_pos_info['relative_angle_deg']
+            nav_info['home_distance'] = home_pos_info['distance_px']
+        else:
+            nav_info['home_relative_angle'] = None
+            nav_info['home_distance'] = None
         
         # 在图像上绘制所有检测结果
         output = self.draw_all_results(frame.copy())
         
-        # 提取要传输的数据
+        # 提取要传输的数据，包含以下信息:
+        # - 围栏四个顶点坐标 (fence_x1~x4, fence_y1~y4)
+        # - 目标区域中心点 (home_x, home_y)
+        # - 到最近物体的方位角 (item_angle, 乘以10保留一位小数)
+        # - 到最近物体的距离 (item_distance, 像素单位)
+        # - 到家的方位角 (home_angle, 乘以10保留一位小数)
+        # - 到家的距离 (home_distance, 像素单位)
+        # 所有数据都转换为整数格式，便于通信传输
         self.transmission_data = extract_vision_data(self.results)
         
         return output
@@ -502,15 +725,14 @@ class VisionSystem:
               - 边框标记
         
         2. 导航信息显示
-           a) 位置引导
+           a) 物体位置引导
               - 车辆到目标的绿色连接线
               - 方向指示箭头
-           
-           b) 状态文本
-              - 相对方位角（度数）
-              - 目标距离（像素）
-              - 目标类型
-              - 有效性状态
+              - 状态信息（方位角、距离、物体类型等）
+              
+           b) 家位置引导
+              - 车辆到家的蓝色连接线
+              - 状态信息（方位角、距离）
            
            c) 系统信息
               - 帧率计数器（FPS）
@@ -551,6 +773,7 @@ class VisionSystem:
            - 优化文本位置计算
         """
         h, w = frame.shape[:2]
+        font = cv2.FONT_HERSHEY_SIMPLEX
         margin = 10
         line_height = 30
         current_y = margin + line_height
@@ -571,38 +794,93 @@ class VisionSystem:
         if self.results['aruco']:
             frame = self.aruco_detector.draw_detections(frame, self.results['aruco'])
             
-            # 5. 添加导航信息（最近物体）
+        # 5. 添加导航信息（最近物体）
         nav_info = self.results['navigation']
         if nav_info['car_pos'] and nav_info['nearest_item']:
-            # 绘制导航线
+            nearest_item = nav_info['nearest_item']
+            
+            # 绘制导航线（从车到物体实际中心）
             cv2.line(frame, 
                     tuple(map(int, nav_info['car_pos'])), 
-                    tuple(map(int, nav_info['nearest_item']['center'])), 
+                    tuple(map(int, nearest_item['center'])), 
                     (0, 255, 0), 2)
+            
+            # 如果物体超出边界，绘制调整后的位置和导航线
+            if nearest_item.get('out_of_bounds', False) and 'adjusted_center' in nearest_item:
+                # 绘制调整后的中心点（用橙色圆圈标识）
+                adjusted_center = tuple(map(int, nearest_item['adjusted_center']))
+                cv2.circle(frame, adjusted_center, 8, (0, 165, 255), 2)  # 橙色圆圈
+                
+                # 从物体实际中心到调整后中心点的虚线
+                actual_center = tuple(map(int, nearest_item['center']))
+                cv2.line(frame, actual_center, adjusted_center, 
+                        (0, 165, 255), 2, cv2.LINE_AA)
+                
+                # 绘制从车到调整后位置的导航线（虚线）
+                pts = np.array([nav_info['car_pos'], adjusted_center], np.int32).reshape((-1, 1, 2))
+                cv2.polylines(frame, [pts], False, (0, 165, 255), 2, cv2.LINE_AA)
 
             # 添加方位信息
             info_lines = []
             
             # 方位角
-            if nav_info['relative_angle'] is not None:
-                info_lines.append(f"Angle: {nav_info['relative_angle']:.1f} deg")
+            if nav_info['item_relative_angle'] is not None:
+                info_lines.append(f"Item Angle: {nav_info['item_relative_angle']:.1f} deg")
             
             # 距离
-            if nav_info['distance'] is not None:
-                info_lines.append(f"Dist: {nav_info['distance']:.1f}px")
-            
+            if nav_info['item_distance'] is not None:
+                info_lines.append(f"Item Dist: {nav_info['item_distance']:.1f}px")
+
             # 物体信息
-            nearest_item = nav_info['nearest_item']
-            info_lines.append(f"type: {nearest_item['type'].upper()}")
+            info_lines.append(f"Type: {nearest_item['type'].upper()}")
             
             # 物体状态
             valid = nearest_item.get('valid', True)
             info_lines.append(f"Status: {'VALID' if valid else 'INVALID'}")
             
+            # 是否超出内收矩形
+            if 'out_of_bounds' in nearest_item:
+                out_of_bounds = nearest_item['out_of_bounds']
+                info_lines.append(f"Out of Bounds: {out_of_bounds}")
+                
+                # 如果超出边界，显示调整后的坐标
+                if out_of_bounds and 'adjusted_center' in nearest_item:
+                    x, y = nearest_item['adjusted_center']
+                    info_lines.append(f"Adjusted Pos: ({int(x)}, {int(y)})")
+            
             # 绘制信息
-            color = (0, 255, 0)  # 绿色
+            color = (0, 255, 0)  # 绿色（正常）
+            # 如果超出边界，使用橙色
+            if nearest_item.get('out_of_bounds', False):
+                color = (0, 165, 255)  # 橙色
+                
             font = cv2.FONT_HERSHEY_SIMPLEX
             for line in info_lines:
+                cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
+                current_y += line_height
+                
+        # 6. 添加到家的导航线
+        if nav_info['car_pos'] and self.results['home'] and self.results['home'].center:
+            # 绘制到家的导航线（使用蓝色区分）
+            cv2.line(frame, 
+                    tuple(map(int, nav_info['car_pos'])), 
+                    tuple(map(int, self.results['home'].center)), 
+                    (255, 0, 0), 2)  # 蓝色线
+                    
+            # 添加到家的导航信息
+            home_info_lines = []
+            
+            # 方位角
+            if nav_info['home_relative_angle'] is not None:
+                home_info_lines.append(f"Home Angle: {nav_info['home_relative_angle']:.1f} deg")
+            
+            # 距离
+            if nav_info['home_distance'] is not None:
+                home_info_lines.append(f"Home Dist: {nav_info['home_distance']:.1f}px")
+            
+            # 绘制信息
+            color = (255, 0, 0)  # 蓝色
+            for line in home_info_lines:
                 cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
                 current_y += line_height        # 6. 添加帧率显示（显示在右上角）
         if hasattr(self, 'fps'):
@@ -652,24 +930,10 @@ def process_image(image_path: str, save_result: bool = True) -> np.ndarray:
     # 处理图片
     result = vision.process_frame(frame)
     
+
     # 打印检测结果
     print("\n所有检测结果:")
     print("-" * 40)
-    
-    # 打印导航信息
-    print("\n导航状态:")
-    nav_info = vision.results['navigation']
-    if nav_info['car_pos'] is not None:
-        print(f"  车体位置: {nav_info['car_pos']}")
-        print(f"  车体朝向: {nav_info['car_angle']:.1f}°")
-    else:
-        print("  未检测到车体位置")
-    
-    if nav_info['nearest_item'] is not None:
-        print(f"  最近目标距离: {nav_info['distance']:.1f}像素")
-        print(f"  相对方位角: {nav_info['relative_angle']:.1f}°")
-    else:
-        print("  未检测到有效目标")
     
     if vision.results['aruco']:
         print("\nArUco标记:")
@@ -708,27 +972,36 @@ def process_image(image_path: str, save_result: bool = True) -> np.ndarray:
                 if 'relative_angle_deg' in item:
                     print(f"    相对角度: {item['relative_angle_deg']:.1f}°")
     
-    # 打印提取的传输数据
-    print("\n提取用于传输的数据:")
-    print("-" * 40)
-    if vision.transmission_data:
-        # 围栏顶点
-        print("\n围栏顶点坐标（整数）:")
-        for i in range(1, 5):
-            x = vision.transmission_data[f'fence_x{i}']
-            y = vision.transmission_data[f'fence_y{i}']
-            print(f"  顶点{i}: ({x}, {y})")
-        
-        # 目标区域中心
-        print("\n目标区域中心（整数）:")
-        print(f"  ({vision.transmission_data['home_x']}, {vision.transmission_data['home_y']})")
-        
-        # 导航信息
-        print("\n导航信息（整数）:")
-        print(f"  相对角度: {vision.transmission_data['angle']/10:.1f}° (原始值: {vision.transmission_data['angle']})")
-        print(f"  像素距离: {vision.transmission_data['distance']}")
+        # 打印导航信息
+    print("\n导航状态:")
+    nav_info = vision.results['navigation']
+    if nav_info['car_pos'] is not None:
+        print(f"  车体位置: {nav_info['car_pos']}")
+        print(f"  车体朝向: {nav_info['car_angle']:.1f}°")
     else:
-        print("未能提取有效的传输数据")
+        print("  未检测到车体位置")
+    
+    if nav_info['nearest_item'] is not None:
+        print(f"  最近目标距离: {nav_info['item_distance']:.1f}像素")
+        print(f"  相对方位角: {nav_info['item_relative_angle']:.1f}°")
+        
+        # 打印物体是否超出内收矩形区域的信息
+        out_of_bounds = nav_info['nearest_item'].get('out_of_bounds', False)
+        print(f"  超出内收矩形: {'是' if out_of_bounds else '否'}")
+        
+        # 如果超出边界，显示调整后的坐标
+        if out_of_bounds and 'adjusted_center' in nav_info['nearest_item']:
+            x, y = nav_info['nearest_item']['adjusted_center']
+            print(f"  调整后坐标: ({int(x)}, {int(y)})")
+    else:
+        print("  未检测到有效目标")
+        
+    print("\n到家的相对位置:")
+    if nav_info['home_relative_angle'] is not None and nav_info['home_distance'] is not None:
+        print(f"  到家距离: {nav_info['home_distance']:.1f}像素")
+        print(f"  相对方位角: {nav_info['home_relative_angle']:.1f}°")
+    else:
+        print("  未能计算到家的相对位置")
     
     # 保存结果
     if save_result:
@@ -786,7 +1059,8 @@ def process_camera(camera_id: int = 0):
     frame_count = 0
     start_time = cv2.getTickCount()
     frame_save_count = 0  # 用于生成保存文件名
-    
+    ser = open_serial()
+
     try:
         while True:
             ret, frame = cap.read()
@@ -796,7 +1070,8 @@ def process_camera(camera_id: int = 0):
                 
             # 处理图像
             output = vision.process_frame(frame)
-            
+
+            send_camostudio_data(ser, vision.transmission_data)
             # 更新FPS
             frame_count += 1
             if frame_count >= 30:
@@ -819,10 +1094,12 @@ def process_camera(camera_id: int = 0):
                 save_path = f"camera_frame_{frame_save_count}.jpg"
                 cv2.imwrite(save_path, output)
                 print(f"\n当前帧已保存至: {save_path}")
-                
+            time.sleep(0.33)
+
     finally:
         # 清理资源
         cap.release()
+        close_serial(ser)
         cv2.destroyAllWindows()
         print("\n程序结束")
 

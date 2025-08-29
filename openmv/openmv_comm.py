@@ -76,8 +76,8 @@ class UartConfig:
     STOP = 1          # 停止位
 
     # 协议参数
-    HEADER = 0x3A     # 起始字节
-    TAIL = 0x0A      # 结束字节
+    HEADER = 0xFF     # 起始字节
+    TAIL = 0xF0      # 结束字节
     PACKET_SIZE = 7  # 数据包总大小：起始(1) + 标志(1) + 坐标(4) + 结束(1)
     PKT_FORMAT = '<BHH'  # 数据格式：flag(1B) + u(2B) + v(2B)
 

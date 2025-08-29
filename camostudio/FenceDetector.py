@@ -53,17 +53,20 @@ class FenceConfig:
         - max_area: 最大轮廓面积
         - aspect_ratio_range: 宽高比范围 (min, max)
         - angle_threshold: 角度阈值（度）
+        - shrink_ratio: 内收边界比例，用于避障
     """
     # HSV颜色范围
     blue_lower: tuple = (100, 50, 50)
     blue_upper: tuple = (130, 255, 255)
     # 面积范围（像素）
     min_area: int = 1000
-    max_area: int = 100000
+    max_area: int = 1500000
     # 宽高比范围
     aspect_ratio_range: tuple = (0.5, 2.0)
     # 角度阈值（度）
     angle_threshold: float = 15.0
+    # 内收边界比例（0-1之间的值）
+    shrink_ratio: float = 0.20
 
 @dataclass
 class FenceInfo:
@@ -71,6 +74,7 @@ class FenceInfo:
     围栏检测结果信息
     属性：
         - quad: 四边形顶点坐标 (4,2)
+        - inner_rect: 向内收缩的矩形坐标 [x1, y1, x2, y2]，用于避障，表示左上角和右下角坐标
         - center: 中心点坐标 (x,y)
         - area: 面积
         - perimeter: 周长
@@ -79,6 +83,7 @@ class FenceInfo:
         - valid: 是否是有效的围栏
     """
     quad: np.ndarray
+    inner_rect: tuple  # 简化为[x1, y1, x2, y2]格式的矩形，表示左上角和右下角坐标
     center: tuple
     area: float
     perimeter: float
@@ -204,6 +209,13 @@ class FenceDetector:
                          color=(0,255,0) if result.valid else (0,0,255), 
                          thickness=2)
             
+            # 绘制内部收缩的矩形（用于避障）
+            if result.valid:
+                x1, y1, x2, y2 = result.inner_rect  # 左上角和右下角的坐标
+                cv2.rectangle(frame, (x1, y1), (x2, y2), 
+                             color=(255,165,0),  # 橙色
+                             thickness=2, lineType=cv2.LINE_AA)
+            
             # 绘制顶点及坐标
             for i, pt in enumerate(result.quad):
                 cv2.circle(frame, tuple(pt), 5, (0,255,0), -1)
@@ -232,7 +244,8 @@ class FenceDetector:
                 f"Center: {result.center}",
                 f"Area: {result.area:.0f}",
                 f"Aspect Ratio: {result.aspect_ratio:.2f}",
-                f"Valid: {result.valid}"
+                f"Valid: {result.valid}",
+                f"Inner Rect: Avoid Obstacle Zone"
             ]
             
             # 获取框的左上角坐标
@@ -393,6 +406,23 @@ class FenceDetector:
         quad = quad.astype(int)
         center = tuple(np.mean(quad, axis=0).astype(int))
         
+        # 计算向内收缩的矩形（用于避障）
+        # 获取围栏的边界框
+        x_min, y_min = np.min(quad, axis=0)
+        x_max, y_max = np.max(quad, axis=0)
+        
+        # 根据shrink_ratio计算内收矩形的左上角和右下角坐标
+        shrink_pixels_x = int((x_max - x_min) * self.config.shrink_ratio)
+        shrink_pixels_y = int((y_max - y_min) * self.config.shrink_ratio)
+        
+        # 内收矩形表示为左上角和右下角的坐标 (x1, y1, x2, y2)
+        inner_rect = (
+            x_min + shrink_pixels_x,  # x1 - 左上角x坐标
+            y_min + shrink_pixels_y,  # y1 - 左上角y坐标
+            x_max - shrink_pixels_x,  # x2 - 右下角x坐标
+            y_max - shrink_pixels_y   # y2 - 右下角y坐标
+        )
+        
         # 计算特征
         perimeter = cv2.arcLength(cnt, True)
         rect = cv2.minAreaRect(cnt)
@@ -402,6 +432,7 @@ class FenceDetector:
         # 创建检测结果对象
         info = FenceInfo(
             quad=quad,
+            inner_rect=inner_rect,
             center=center,
             area=area,
             perimeter=perimeter,
@@ -428,7 +459,8 @@ if __name__ == "__main__":
         min_area=1000,
         max_area=1500000,
         aspect_ratio_range=(0.5, 2.0),
-        angle_threshold=15.0
+        angle_threshold=15.0,
+        shrink_ratio=0.10  # 向内收缩15%
     )
     detector = FenceDetector(config)
     
