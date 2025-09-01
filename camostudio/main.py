@@ -427,7 +427,7 @@ class VisionSystem:
         # 按距离排序并选择最近的
         if valid_items:
             valid_items.sort(key=lambda x: x['distance_px'])
-            if len(valid_items) > 2 and abs( (valid_items[0]['distance_px'] - valid_items[1]['distance_px']) )< 10:
+            if len(valid_items) > 2 and abs( (valid_items[0]['distance_px'] - valid_items[1]['distance_px']) )< 20:
                 valid_items = valid_items[:2]
                 valid_items.sort(key=lambda x: x['center'][0])
             nav_info['nearest_item'] = valid_items[0]
@@ -549,8 +549,9 @@ class VisionSystem:
             
         # 提取坐标
         u_car, v_car = nav_info['car_pos']
-        u_home, v_home = self.results['home'].Self_Center
-        u_home, v_home = 181, 680
+        # u_home, v_home = self.results['home'].Self_Center
+        u_home, v_home = 240, 650
+
         
         # 计算位移向量
         delta_u = float(u_home - u_car)
