@@ -66,7 +66,8 @@ class FenceConfig:
     # 角度阈值（度）
     angle_threshold: float = 15.0
     # 内收边界比例（0-1之间的值）
-    shrink_ratio: float = 0.20
+    X_shrink_ratio: float = 0.10
+    Y_shrink_ratio: float = 0.15
 
 @dataclass
 class FenceInfo:
@@ -412,8 +413,8 @@ class FenceDetector:
         x_max, y_max = np.max(quad, axis=0)
         
         # 根据shrink_ratio计算内收矩形的左上角和右下角坐标
-        shrink_pixels_x = int((x_max - x_min) * self.config.shrink_ratio)
-        shrink_pixels_y = int((y_max - y_min) * self.config.shrink_ratio)
+        shrink_pixels_x = int((x_max - x_min) * self.config.X_shrink_ratio)
+        shrink_pixels_y = int((y_max - y_min) * self.config.Y_shrink_ratio)
         
         # 内收矩形表示为左上角和右下角的坐标 (x1, y1, x2, y2)
         inner_rect = (
@@ -460,7 +461,8 @@ if __name__ == "__main__":
         max_area=1500000,
         aspect_ratio_range=(0.5, 2.0),
         angle_threshold=15.0,
-        shrink_ratio=0.10  # 向内收缩15%
+        X_shrink_ratio=0.15,  # 向内收缩10%X
+        Y_shrink_ratio=0.20
     )
     detector = FenceDetector(config)
     

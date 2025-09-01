@@ -144,8 +144,8 @@ def extract_vision_data(vision_results: Dict) -> Dict[str, int]:
             print("警告: 未检测到有效围栏")
             
         # 2. 提取目标区域（家）中心点
-        if vision_results['home'] and vision_results['home'].center:
-            hx, hy = vision_results['home'].center
+        if vision_results['home'] and vision_results['home'].Self_Center:
+            hx, hy = vision_results['home'].Self_Center
             result['home_x'] = int(round(hx))
             result['home_y'] = int(round(hy))
         else:
@@ -374,13 +374,19 @@ class VisionSystem:
         for item in self.results['items']:
             if not item.get('valid', True):
                 continue
+
                 
             u_item, v_item = item['center']
+
+            # 计算距离（使用调整后的坐标）
+            dist = np.sqrt((u_item - u_car)**2 + (v_item - v_car)**2)
+
             out_of_bounds = False
             adjusted_center = (u_item, v_item)  # 默认不调整
             
+
             # 检查物体是否超出内收矩形范围，如果是则调整坐标
-            if inner_rect:
+            if inner_rect :
                 x1, y1, x2, y2 = inner_rect  # 内收矩形的左上角和右下角坐标
                 
                 # 调整x坐标（如果超出范围）
@@ -402,9 +408,14 @@ class VisionSystem:
                 # 如果坐标被调整，保存调整后的坐标
                 if out_of_bounds:
                     adjusted_center = (u_item, v_item)
+                    # 重新计算距离
+                    dist = np.sqrt((u_item - u_car)**2 + (v_item - v_car)**2)
+                
+                if dist < 200:
+                    out_of_bounds = False  # 靠近车体时不认为超出边界
+
+                
             
-            # 计算距离（使用调整后的坐标）
-            dist = np.sqrt((u_item - u_car)**2 + (v_item - v_car)**2)
             
             valid_items.append({
                 **item,
@@ -416,6 +427,9 @@ class VisionSystem:
         # 按距离排序并选择最近的
         if valid_items:
             valid_items.sort(key=lambda x: x['distance_px'])
+            if len(valid_items) > 2 and abs( (valid_items[0]['distance_px'] - valid_items[1]['distance_px']) )< 10:
+                valid_items = valid_items[:2]
+                valid_items.sort(key=lambda x: x['center'][0])
             nav_info['nearest_item'] = valid_items[0]
         else:
             nav_info['nearest_item'] = None
@@ -527,15 +541,16 @@ class VisionSystem:
         nav_info = self.results['navigation']
         
         # 验证必要条件
-        if (not nav_info['car_pos'] or 
-            nav_info['car_angle'] is None or 
-            not self.results['home'] or 
-            not self.results['home'].center):
-            return None
+        # if (not nav_info['car_pos'] or 
+        #     nav_info['car_angle'] is None or 
+        #     not self.results['home'] or 
+        #     not self.results['home'].Self_Center):
+        #     return None
             
         # 提取坐标
         u_car, v_car = nav_info['car_pos']
-        u_home, v_home = self.results['home'].center
+        u_home, v_home = self.results['home'].Self_Center
+        u_home, v_home = 181, 680
         
         # 计算位移向量
         delta_u = float(u_home - u_car)
@@ -860,11 +875,11 @@ class VisionSystem:
                 current_y += line_height
                 
         # 6. 添加到家的导航线
-        if nav_info['car_pos'] and self.results['home'] and self.results['home'].center:
+        if nav_info['car_pos'] and self.results['home'] and self.results['home'].Self_Center:
             # 绘制到家的导航线（使用蓝色区分）
             cv2.line(frame, 
                     tuple(map(int, nav_info['car_pos'])), 
-                    tuple(map(int, self.results['home'].center)), 
+                    tuple(map(int, self.results['home'].Self_Center)), 
                     (255, 0, 0), 2)  # 蓝色线
                     
             # 添加到家的导航信息
@@ -955,10 +970,10 @@ def process_image(image_path: str, save_result: bool = True) -> np.ndarray:
     
     if vision.results['home'] is not None:
         print("\n家区域:")
-        print(f"  中心点: {vision.results['home'].center}")
-        print(f"  面积: {vision.results['home'].area:.1f}")
-        print(f"  有效性: {vision.results['home'].valid}")
-    
+        print(f"  中心点: {vision.results['home'].Self_Center}")
+        print(f"  面积: {vision.results['home'].Self_Area:.1f}")
+        print(f"  有效性: {vision.results['home'].Self_Valid}")
+
     if vision.results['items']:
         print("\n检测到的物体:")
         for i, item in enumerate(vision.results['items']):
@@ -1013,7 +1028,7 @@ def process_image(image_path: str, save_result: bool = True) -> np.ndarray:
     
     return result
 
-def process_camera(camera_id: int = 0):
+def process_camera(camera_id: int = 0, serial_debug: int = 0):
     """
     使用摄像头进行实时视觉检测
     
@@ -1059,7 +1074,9 @@ def process_camera(camera_id: int = 0):
     frame_count = 0
     start_time = cv2.getTickCount()
     frame_save_count = 0  # 用于生成保存文件名
-    ser = open_serial()
+    SER_DEBUG = serial_debug  # 是否启用串口调试
+    if SER_DEBUG:
+        ser = open_serial()
 
     try:
         while True:
@@ -1071,7 +1088,8 @@ def process_camera(camera_id: int = 0):
             # 处理图像
             output = vision.process_frame(frame)
 
-            send_camostudio_data(ser, vision.transmission_data)
+            if SER_DEBUG:
+                send_camostudio_data(ser, vision.transmission_data)
             # 更新FPS
             frame_count += 1
             if frame_count >= 30:
@@ -1099,7 +1117,8 @@ def process_camera(camera_id: int = 0):
     finally:
         # 清理资源
         cap.release()
-        close_serial(ser)
+        if SER_DEBUG:
+            close_serial(ser)
         cv2.destroyAllWindows()
         print("\n程序结束")
 
@@ -1138,9 +1157,11 @@ def test_vision_system():
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-i', '--image', type=str, help='要处理的图片路径')
     group.add_argument('-c', '--camera', type=int, default=0, help='摄像头ID（默认0）')
-    
+    group.add_argument('-t', '--test_serial', type=int, default=0, help='启用测试模式')
     args = parser.parse_args()
-    
+
+    SER_DEBUG = args.test_serial  # 是否启用串口调试
+    print(SER_DEBUG)
     try:
         if args.image:  # 图片模式
             if not os.path.exists(args.image):
@@ -1157,8 +1178,8 @@ def test_vision_system():
             cv2.destroyAllWindows()
             
         else:  # 摄像头模式
-            process_camera(args.camera)
-            
+            process_camera(args.camera, serial_debug=SER_DEBUG)
+
     except Exception as e:
         print(f"\n发生错误: {str(e)}")
         return

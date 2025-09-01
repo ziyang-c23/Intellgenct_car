@@ -224,21 +224,13 @@ class HomeInfo:
             valid=True
         )
     """
-    Self_Quad: np.ndarray       # 自己区域四边形顶点坐标 (4,2)
-    Self_Center: tuple         # 自己区域中心点坐标 (x,y)
-    Self_Area: float          # 自己区域面积
-    Self_Perimeter: float     # 自己区域周长
-    Self_Aspect_Ratio: float  # 自己区域宽高比
-    Self_Angles: list         # 自己区域四个角的角度
-    Self_Valid: bool          # 自己区域是否是有效的区域
-    Opponent_Quad: np.ndarray  # 对方区域四边形顶点坐标 (4,2)
-    Opponent_Center: tuple     # 对方区域中心点坐标 (x,y)
-    Opponent_Area: float       # 对方区域面积
-    Opponent_Perimeter: float  # 对方区域周长
-    Opponent_Aspect_Ratio: float  # 对方区域宽高比
-    Opponent_Angles: list      # 对方区域四个角的角度
-    Opponent_Valid: bool       # 对方区域是否是有效的区域
-
+    quad: np.ndarray       # 四边形顶点坐标 (4,2)
+    center: tuple         # 中心点坐标 (x,y)
+    area: float          # 面积
+    perimeter: float     # 周长
+    aspect_ratio: float  # 宽高比
+    angles: list         # 四个角的角度
+    valid: bool          # 是否是有效的区域
 
 # 通用工具函数
 
@@ -349,7 +341,7 @@ class HomeDetector:
             angles.append(angle)
         return angles
 
-    def validate_self_home(self, info: HomeInfo) -> bool:
+    def validate_home(self, info: HomeInfo) -> bool:
         """
         验证检测到的区域是否为有效的家区域。
 
@@ -384,197 +376,197 @@ class HomeDetector:
             - 形状验证：确保区域规则性
             - 角度验证：保证矩形特征
         """
-        if info.Self_Area < self.config.min_area or info.Self_Area > self.config.max_area:
+        if info.area < self.config.min_area or info.area > self.config.max_area:
             return False
-        if not (self.config.aspect_ratio_range[0] <= info.Self_Aspect_Ratio <= self.config.aspect_ratio_range[1]):
+        if not (self.config.aspect_ratio_range[0] <= info.aspect_ratio <= self.config.aspect_ratio_range[1]):
             return False
-        for angle in info.Self_Angles:
-            if abs(angle - 90) > self.config.angle_threshold:
-                return False
-        return True
-
-    def validate_opponent_home(self, info: HomeInfo) -> bool:
-        if info.Opponent_Area < self.config.min_area or info.Opponent_Area > self.config.max_area:
-            return False
-        if not (self.config.aspect_ratio_range[0] <= info.Opponent_Aspect_Ratio <= self.config.aspect_ratio_range[1]):
-            return False
-        for angle in info.Opponent_Angles:
+        for angle in info.angles:
             if abs(angle - 90) > self.config.angle_threshold:
                 return False
         return True
 
     def detect(self, hsv: np.ndarray) -> Optional[HomeInfo]:
         """
-        检测画面中的自己家（左下角）和对手家（右上角），
-        并分别返回检测结果。
+        检测画面中的家区域（黑色区域）并进行验证。
+        
+        检测流程：
+            1. 颜色分割：
+               - 使用HSV阈值分割黑色区域
+               - 形态学操作去除噪声
+               
+            2. 轮廓处理：
+               - 提取所有轮廓
+               - 选择最大面积轮廓
+               - 初步面积验证
+               
+            3. 形状分析：
+               - 计算最小外接矩形
+               - 提取顶点并排序
+               - 计算几何特征
+               
+            4. 结果验证：
+               - 面积范围检查
+               - 宽高比验证
+               - 角度一致性验证
+        
+        参数：
+            hsv: np.ndarray
+                HSV格式的输入图像
+                需要通过cv2.cvtColor预处理
+                
+        返回：
+            Optional[HomeInfo]：检测结果对象
+            - 如果检测成功：返回包含位置和特征的HomeInfo对象
+            - 如果检测失败：返回None
+            
+        注意：
+            - 输入图像必须是HSV格式
+            - 检测结果包含验证状态
+            - 可通过last_result属性获取最近结果
         """
-
         # 颜色阈值处理
         mask = cv2.inRange(hsv, np.array(self.config.black_lower), np.array(self.config.black_upper))
         # 形态学操作
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kernel_open, iterations=1)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel_close, iterations=1)
-
+        
         # 查找轮廓
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return None
-
-        h, w = hsv.shape[:2]
-        mid_x, mid_y = w // 2, h // 2   # 屏幕中点，用来判断象限
-
-        # 初始化结果
-        self_info = {
-            "quad": None, "center": None, "area": 0, "perimeter": 0,
-            "aspect_ratio": 0, "angles": [], "valid": False
-        }
-        opp_info = {
-            "quad": None, "center": None, "area": 0, "perimeter": 0,
-            "aspect_ratio": 0, "angles": [], "valid": False
-        }
-
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < self.config.min_area:
-                continue
-
-            quad = contour_min_area_rect_points(cnt).astype(int)
-            center = compute_centroid(cnt)
-            if center is None:
-                center = tuple(np.mean(quad, axis=0).astype(int))
-
-            perimeter = cv2.arcLength(cnt, True)
-            rect = cv2.minAreaRect(cnt)
-            aspect_ratio = max(rect[1]) / (min(rect[1]) + 1e-6)
-            angles = self.calculate_angles(quad)
-
-            cx, cy = center
-
-            # 判断归属
-            if cx < mid_x and cy > mid_y:  # 左下角 → 自己家
-                if area > self_info["area"]:   # 取面积最大的一个
-                    self_info.update({
-                        "quad": quad,
-                        "center": center,
-                        "area": area,
-                        "perimeter": perimeter,
-                        "aspect_ratio": aspect_ratio,
-                        "angles": angles
-                    })
-            elif cx > mid_x and cy < mid_y:  # 右上角 → 对手家
-                if area > opp_info["area"]:
-                    opp_info.update({
-                        "quad": quad,
-                        "center": center,
-                        "area": area,
-                        "perimeter": perimeter,
-                        "aspect_ratio": aspect_ratio,
-                        "angles": angles
-                    })
-
-        # 如果两边都没检测到，就返回 None
-        if self_info["quad"] is None and opp_info["quad"] is None:
+            
+        # 获取最大轮廓
+        cnt = max(contours, key=cv2.contourArea)
+        area = cv2.contourArea(cnt)
+        if area < self.config.min_area:
             return None
-
-        # 构造 HomeInfo
+            
+        # 获取四边形顶点
+        quad = contour_min_area_rect_points(cnt).astype(int)
+        center = compute_centroid(cnt)
+        if center is None:
+            center = tuple(np.mean(quad, axis=0).astype(int))
+        
+        # 计算特征
+        perimeter = cv2.arcLength(cnt, True)
+        rect = cv2.minAreaRect(cnt)
+        aspect_ratio = max(rect[1]) / (min(rect[1]) + 1e-6)
+        angles = self.calculate_angles(quad)
+        
+        # 创建检测结果对象
         info = HomeInfo(
-            Self_Quad=self_info["quad"],
-            Self_Center=self_info["center"],
-            Self_Area=self_info["area"],
-            Self_Perimeter=self_info["perimeter"],
-            Self_Aspect_Ratio=self_info["aspect_ratio"],
-            Self_Angles=self_info["angles"],
-            Self_Valid=False,
-            Opponent_Quad=opp_info["quad"],
-            Opponent_Center=opp_info["center"],
-            Opponent_Area=opp_info["area"],
-            Opponent_Perimeter=opp_info["perimeter"],
-            Opponent_Aspect_Ratio=opp_info["aspect_ratio"],
-            Opponent_Angles=opp_info["angles"],
-            Opponent_Valid=False
+            quad=quad,
+            center=center,
+            area=area,
+            perimeter=perimeter,
+            aspect_ratio=aspect_ratio,
+            angles=angles,
+            valid=False
         )
-
-        # 验证
-        if info.Self_Quad is not None:
-            info.Self_Valid = self.validate_self_home(info)
-        if info.Opponent_Quad is not None:
-            info.Opponent_Valid = self.validate_opponent_home(info)
-
+        
+        # 验证结果
+        info.valid = self.validate_home(info)
         self.last_result = info
+        
         return info
-
 
     def draw_results(self, frame: np.ndarray, result: Optional[HomeInfo]) -> np.ndarray:
         """
-        在图像上绘制检测结果（同时支持自己家和对手家）。
+        在图像上绘制检测结果和相关信息的可视化显示。
 
-        自己家：
-            - 有效：绿色
-            - 无效：红色
-        对手家：
-            - 有效：蓝色
-            - 无效：橙色
+        绘制内容：
+            1. 检测框
+               - 有效检测：绿色
+               - 无效检测：红色
+               - 线宽：2像素
+               
+            2. 关键点
+               - 四个顶点：绿色圆点(5像素)
+               - 顶点编号：P1-P4
+               - 中心点：红色圆点(7像素)
+               
+            3. 状态信息
+               - 位置坐标
+               - 面积大小
+               - 宽高比
+               - 验证结果
+               
+        参数：
+            frame: np.ndarray
+                原始图像，BGR格式
+                直接在其上绘制，会修改原图
+                
+            result: Optional[HomeInfo]
+                检测结果对象
+                如果为None则显示未检测到的信息
+                
+        返回：
+            np.ndarray：绘制完成的图像
+            
+        注意：
+            - 所有文本使用简单字体
+            - 信息显示在区域左上方
+            - 颜色编码表示检测状态
         """
-        if result is None:
-            cv2.putText(frame, "No Home Detected", (20, 40),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
-            return frame
-
-        def draw_home(quad, center, area, aspect_ratio, valid, name, color_valid, color_invalid, text_offset=0):
-            if quad is None or center is None:
-                return
-            color = color_valid if valid else color_invalid
-
+        if result is not None:
             # 绘制四边形
-            cv2.polylines(frame, [quad], isClosed=True, color=color, thickness=2)
-
-            # 绘制顶点
-            for i, pt in enumerate(quad):
-                cv2.circle(frame, tuple(pt), 5, color, -1)
-                cv2.putText(frame, f"P{i+1}", (pt[0]+5, pt[1]-5),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-
-            # 绘制中心点
-            cv2.circle(frame, center, 6, (0,0,255), -1)
-
-            # 绘制信息
-            min_x = np.min(quad[:,0])
-            min_y = np.min(quad[:,1])
+            cv2.polylines(frame, [result.quad], isClosed=True, 
+                         color=(0,255,0) if result.valid else (0,0,255), 
+                         thickness=2)
+            
+            # 绘制顶点及坐标
+            for i, pt in enumerate(result.quad):
+                cv2.circle(frame, tuple(pt), 5, (0,255,0), -1)
+                # 根据顶点位置调整标签位置
+                if i == 0:  # 左上角点
+                    label_x = pt[0] - 25
+                    label_y = pt[1] - 10
+                elif i == 1:  # 右上角点
+                    label_x = pt[0] + 5
+                    label_y = pt[1] - 10
+                elif i == 2:  # 右下角点
+                    label_x = pt[0] + 5
+                    label_y = pt[1] + 20
+                else:  # 左下角点
+                    label_x = pt[0] - 25
+                    label_y = pt[1] + 20
+                
+                cv2.putText(frame, f"P{i+1}", (label_x, label_y), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
+            
+            # 显示中心点
+            cv2.circle(frame, result.center, 7, (0,0,255), -1)
+            
+            # 获取框的左上角坐标
+            min_x = np.min(result.quad[:, 0])
+            min_y = np.min(result.quad[:, 1])
+            
+            # 确保文本不会超出图像边界
             text_x = max(min_x - 10, 10)
-            text_y = max(min_y - 40, 30) + text_offset
-
+            text_y = max(min_y - 20, 30)
+            
+            # 显示信息
             info_text = [
-                f"{name}:",
-                f"  Center: {center}",
-                f"  Area: {area:.0f}",
-                f"  Aspect: {aspect_ratio:.2f}",
-                f"  Valid: {valid}"
+                f"Center: {result.center}",
+                f"Area: {result.area:.0f}",
+                f"Aspect Ratio: {result.aspect_ratio:.2f}",
+                f"Valid: {result.valid}"
             ]
+            
             for i, text in enumerate(info_text):
-                cv2.putText(frame, text, (int(text_x), int(text_y + 20*i)),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-        # 绘制自己家（左下）
-        draw_home(
-            result.Self_Quad, result.Self_Center, result.Self_Area,
-            result.Self_Aspect_Ratio, result.Self_Valid,
-            "Self Home", (0,255,0), (0,0,255), text_offset=0
-        )
-
-        # 绘制对手家（右上）
-        draw_home(
-            result.Opponent_Quad, result.Opponent_Center, result.Opponent_Area,
-            result.Opponent_Aspect_Ratio, result.Opponent_Valid,
-            "Opponent Home", (255,0,0), (0,165,255), text_offset=100
-        )
-
+                cv2.putText(frame, text, (int(text_x), int(text_y + 25*i)), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
+                           (0,255,0) if result.valid else (0,0,255), 2)
+                
+        else:
+            cv2.putText(frame, "No Home Detected", (20, 40), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
         return frame
-
     
 if __name__ == "__main__":
     """
     主程序：打开摄像头，实时检测并显示家区域。
-    按 q 键退出。
+    按q键退出。
     """
     # 创建检测器实例，可以自定义配置参数
     config = HomeConfig(
@@ -588,9 +580,9 @@ if __name__ == "__main__":
     detector = HomeDetector(config)
     
     # 尝试打开摄像头
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(2)
     if cap.isOpened():
-        print("已打开摄像头，开始实时检测... (按 q 退出)")
+        print("已打开摄像头，开始实时检测...")
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -603,18 +595,10 @@ if __name__ == "__main__":
             
             # 绘制结果
             frame = detector.draw_results(frame, result)
-
-            # 控制台输出（每 30 帧打印一次）
-            if result and cap.get(cv2.CAP_PROP_POS_FRAMES) % 30 == 0:
-                if result.Self_Quad is not None:
-                    print(result.Self_Quad)
-                    print(f"[Self] Center={result.Self_Center}, Area={result.Self_Area:.0f}, Valid={result.Self_Valid}")
-                if result.Opponent_Quad is not None:
-                    print(f"[Opponent] Center={result.Opponent_Center}, Area={result.Opponent_Area:.0f}, Valid={result.Opponent_Valid}")
             
             # 显示
             cv2.imshow("Home Detection", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord('q'):  # 按q退出
                 break
                 
         cap.release()
@@ -638,30 +622,18 @@ if __name__ == "__main__":
                 # 保存并显示
                 cv2.imwrite("camostudio/Home.jpg", img)
                 cv2.imshow("Home Detection", img)
-                print("检测结果已保存到 camostudio/Home.jpg")
-
-                if result:
-                    if result.Self_Quad is not None:
-                        print("\n=== 自己家 (Self Home) ===")
-                        print(f"- 中心点: {result.Self_Center}")
-                        print(f"- 面积: {result.Self_Area:.0f}")
-                        print(f"- 宽高比: {result.Self_Aspect_Ratio:.2f}")
-                        print(f"- 四个角度: {[f'{a:.1f}°' for a in result.Self_Angles]}")
-                        print(f"- 有效性: {result.Self_Valid}")
-
-                    if result.Opponent_Quad is not None:
-                        print("\n=== 对手家 (Opponent Home) ===")
-                        print(f"- 中心点: {result.Opponent_Center}")
-                        print(f"- 面积: {result.Opponent_Area:.0f}")
-                        print(f"- 宽高比: {result.Opponent_Aspect_Ratio:.2f}")
-                        print(f"- 四个角度: {[f'{a:.1f}°' for a in result.Opponent_Angles]}")
-                        print(f"- 有效性: {result.Opponent_Valid}")
+                print("检测结果已保存到 Home.jpg")
+                if result and result.valid:
+                    print(f"检测到有效的家区域:")
+                    print(f"- 中心点: {result.center}")
+                    print(f"- 面积: {result.area:.0f}")
+                    print(f"- 宽高比: {result.aspect_ratio:.2f}")
+                    print(f"- 四个角度: {[f'{angle:.1f}°' for angle in result.angles]}")
                 else:
-                    print("未检测到任何家区域。")
+                    print("未检测到有效的家区域")
                     
                 print("\n按任意键关闭窗口...")
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()
         else:
             print("未输入图片路径，跳过测试。")
-
