@@ -1,4 +1,0 @@
-../Core/Src/pid.c:6:6:PID_Init	1
-../Core/Src/pid.c:17:7:P_Calculate	1
-../Core/Src/pid.c:24:7:PI_Calculate	1
-../Core/Src/pid.c:32:7:PID_Calculate	1
