@@ -389,20 +389,22 @@ class VisionSystem:
             if inner_rect :
                 x1, y1, x2, y2 = inner_rect  # 内收矩形的左上角和右下角坐标
                 
+                extra_dist = 100
+                dist_lim = 100
                 # 调整x坐标（如果超出范围）
                 if u_item < x1:
-                    u_item = x1
+                    u_item = x1 + extra_dist
                     out_of_bounds = True
                 elif u_item > x2:
-                    u_item = x2
+                    u_item = x2 - extra_dist
                     out_of_bounds = True
                     
                 # 调整y坐标（如果超出范围）
                 if v_item < y1:
-                    v_item = y1
+                    v_item = y1 + extra_dist
                     out_of_bounds = True
                 elif v_item > y2:
-                    v_item = y2
+                    v_item = y2 - extra_dist
                     out_of_bounds = True
                     
                 # 如果坐标被调整，保存调整后的坐标
@@ -410,8 +412,8 @@ class VisionSystem:
                     adjusted_center = (u_item, v_item)
                     # 重新计算距离
                     dist = np.sqrt((u_item - u_car)**2 + (v_item - v_car)**2)
-                
-                if dist < 200:
+
+                if dist < dist_lim:
                     out_of_bounds = False  # 靠近车体时不认为超出边界
 
                 
