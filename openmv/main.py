@@ -98,16 +98,16 @@ class SystemConfig:
     # 视觉检测器配置
     DETECTOR_CONFIG = {
         # 目标检测参数
-        'area_threshold': 0.001,  # 最小面积比例（占图像面积的0.1%）
-        'min_pixels': 100,            # 最小像素数（滤除噪点）
+        'area_threshold': 0.0005,  # 最小面积比例（占图像面积的0.1%）
+        'min_pixels': 30,            # 最小像素数（滤除噪点）
         'merge_blobs': True,        # 合并相邻区域
 
         # 颜色检测参数 (LAB颜色空间)
-        'threshold_red': [(20, 80, 15, 70, -20, 40)],      # 红色阈值
-        'threshold_yellow': [(50, 100, -30, 20, 25, 75)],  # 黄色阈值
+        'threshold_red': [(10,40, 5, 55, -5, 45)],      # 红色阈值
+        'threshold_yellow': [(40, 70, -30, 20, 25,75)],  # 黄色阈值
 
         # 距离计算参数
-        'v_min_ratio': 0.1,         # 最远可见位置（图像顶部10%）
+        'v_min_ratio': 0.05,         # 最远可见位置（图像顶部10%）
         'v_max_ratio': 0.75,         # 最近可见位置（图像底部75%）
     }
 
@@ -119,7 +119,7 @@ class SystemConfig:
         'bits': 8,                  # 数据位
         'parity': None,             # 校验位
         'stop': 1,                  # 停止位
-        'cycle': 100,               # 通信周期(ms)
+        'cycle': 50,               # 通信周期(ms)
         # 协议参数
         'header': 0xFF,             # 包头标识
         'tail': 0xF0,               # 包尾标识

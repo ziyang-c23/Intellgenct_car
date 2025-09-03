@@ -311,13 +311,8 @@ class VisionSystem:
                 'home_relative_angle': None,  # float - 到家的相对方位角（度数），范围[-180, 180]
                 'home_distance': None         # float - 到家的相对距离（像素）
             }
-
         }
         
-        self.u_last_home = 0
-        self.v_last_home = 0
-        self.u_last_item = 0
-        self.v_last_item = 0
         # 性能指标
         self.fps = 0.0  # float - 当前帧率
 
@@ -381,15 +376,12 @@ class VisionSystem:
             if not item.get('valid', True):
                 continue
 
+                
             u_item, v_item = item['center']
 
-            # if nav_info['nearest_item']['center']:
-            #     u_last, v_last = nav_info['nearest_item']['center']
-            # else:
-            u_last, v_last = self.u_last_item, self.v_last_item
             # 计算距离（使用调整后的坐标）
             dist = np.sqrt((u_item - u_car)**2 + (v_item - v_car)**2)
-            dist2last = np.sqrt((u_item - u_last)**2 + (v_item - v_last)**2)
+
             out_of_bounds = False
             adjusted_center = (u_item, v_item)  # 默认不调整
             
@@ -421,7 +413,6 @@ class VisionSystem:
                     adjusted_center = (u_item, v_item)
                     # 重新计算距离
                     dist = np.sqrt((u_item - u_car)**2 + (v_item - v_car)**2)
-                    dist2last = np.sqrt((u_item - u_last)**2 + (v_item - v_last)**2)
 
                 if dist < dist_lim:
                     out_of_bounds = False  # 靠近车体时不认为超出边界
@@ -432,7 +423,6 @@ class VisionSystem:
             valid_items.append({
                 **item,
                 'distance_px': dist,  # 统一使用distance_px作为距离字段
-                'dist2last_px': dist2last,  # 统一使用dist2last_px作为距离字段
                 'out_of_bounds': out_of_bounds,  # 标记是否超出内收矩形
                 'adjusted_center': adjusted_center  # 保存调整后的坐标
             })
@@ -440,11 +430,10 @@ class VisionSystem:
         # 按距离排序并选择最近的
         if valid_items:
             valid_items.sort(key=lambda x: x['distance_px'])
-            if len(valid_items) > 2:
+            if len(valid_items) > 2 and abs( (valid_items[0]['distance_px'] - valid_items[1]['distance_px']) )< 20:
                 valid_items = valid_items[:2]
-                valid_items.sort(key=lambda x: x['dist2last_px'])
+                valid_items.sort(key=lambda x: x['center'][0])
             nav_info['nearest_item'] = valid_items[0]
-            self.u_last_item, self.v_last_item = nav_info['nearest_item']['center']
         else:
             nav_info['nearest_item'] = None
 
@@ -553,26 +542,23 @@ class VisionSystem:
                 - delta_uv: Tuple[float, float], 位移向量
         """
         global cnt
-
         nav_info = self.results['navigation']
         
         # 验证必要条件
-        if (not self.results['home'] or 
-            not self.results['home'].Self_Center):
-            return None
-        
-        if (not nav_info['car_pos'] or 
-            nav_info['car_angle'] is None):
-            return None
+        # if (not nav_info['car_pos'] or 
+        #     nav_info['car_angle'] is None or 
+        #     not self.results['home'] or 
+        #     not self.results['home'].Self_Center):
+        #     return None
             
         # 提取坐标
         u_car, v_car = nav_info['car_pos']
-        if cnt == 0:
-            u_home, v_home = self.results['home'].Self_Center
-            self.u_last_home, self.v_last_home = u_home, v_home
-            cnt = 1
-        if cnt == 1:
-            u_home, v_home = self.u_last_home, self.v_last_home
+        u_home, v_home = self.results['home'].Self_Center
+        # if cnt == 0:
+        #     u_last_home, v_last_home = u_home, v_home
+        #     cnt = 1
+        # if cnt == 1:
+        #     u_home, v_home = u_last_home, v_last_home
         # u_home, v_home = 300, 650
 
         # 计算位移向量
@@ -583,8 +569,7 @@ class VisionSystem:
         angle = np.degrees(np.arctan2(delta_v, delta_u))
         
         # 计算相对方位角（度数）
-        relative_angle = angle - (nav_info['car_angle'] - 180)
-        
+        relative_angle = angle - nav_info['car_angle']
         # 归一化到 [-180, 180]
         relative_angle = (relative_angle + 180) % 360 - 180
         
@@ -597,59 +582,6 @@ class VisionSystem:
             'distance_px': float(distance),
             'delta_uv': (delta_u, delta_v)
         }
-        
-    def valid_item_in_home(self, items_result, home_result):
-        """
-        检查物体是否在家区域内，并更新物体的valid标志
-        
-        如果物体在家区域内，将其valid属性设置为False，表示不需要继续抓取。
-        
-        参数:
-            items_result: 物体检测结果列表
-            home_result: 家区域检测结果
-            
-        处理逻辑:
-            1. 检查家区域是否有效
-            2. 对于每个检测到的物体：
-               - 提取物体的中心坐标
-               - 判断坐标是否在家区域内
-               - 如果在区域内，将valid设为False
-        """
-        # 如果家区域检测结果无效，直接返回
-        if not home_result or not hasattr(home_result, 'Self_Valid') or not home_result.Self_Valid:
-            return
-        
-        # 获取家区域的四边形顶点
-        if not hasattr(home_result, 'Self_Quad'):
-            return
-            
-        home_quad = home_result.Self_Quad
-        
-        # 如果没有四边形数据，直接返回
-        if home_quad is None or len(home_quad) != 4:
-            return
-            
-        # 遍历所有物体
-        for item in items_result:
-            # 跳过无效物体
-            if not item.get('valid', True):
-                continue
-                
-            # 获取物体中心坐标
-            center = item.get('center')
-            if center is None:
-                continue
-                
-            # 创建点对象
-            point = np.array(center, dtype=np.float32)
-            
-            # 判断点是否在多边形内
-            result = cv2.pointPolygonTest(home_quad, (float(center[0]), float(center[1])), False)
-            
-            # 如果点在多边形内（result > 0），将valid设置为False
-            if result >= 0:
-                item['valid'] = False
-                # print(f"物体({item.get('type', 'unknown')})在家区域内，不需要抓取")
 
     def process_frame(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -739,10 +671,6 @@ class VisionSystem:
         
         # 4. 物体检测 - 现在返回ItemInfo字典列表
         items_result = self.item_detector.detect(hsv)
-
-        # 检查物体是否在家区域内
-        # self.valid_item_in_home(items_result, home_result)
-        
         self.results['items'] = [item for item in items_result if item.get('valid', True)]
         
         # 更新车体位置和朝向（从ArUco检测结果）

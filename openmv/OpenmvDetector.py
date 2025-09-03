@@ -145,16 +145,16 @@ class DetectorConfig:
         - 建议：根据相机安装角度调整
     """
     # LAB颜色阈值（优化后的阈值）
-    threshold_red = [(20, 80, 15, 70, -20, 40)]      # 红色LAB阈值（扩大检测范围）
-    threshold_yellow = [(50, 100, -30, 20, 25,75)]  # 黄色LAB阈值（扩大检测范围）
+    threshold_red = [(10,40, 5, 55, -5, 45)]      # 红色LAB阈值（扩大检测范围）
+    threshold_yellow = [(40, 70, -30, 20, 25,75)]  # 黄色LAB阈值（扩大检测范围）
 
     # 物体筛选参数
-    area_threshold = 0.001  # 最小面积比例（占图像面积）
-    min_pixels =  100       # 最小像素数
+    area_threshold = 0.0005  # 最小面积比例（占图像面积）
+    min_pixels =  50       # 最小像素数
     merge_blobs = True     # 是否合并相邻区域
 
     # 距离计算参数
-    v_min_ratio = 0.1     # 最远可见行（占图像高度比例）
+    v_min_ratio = 0.05     # 最远可见行（占图像高度比例）
     v_max_ratio = 0.75     # 最近可见行（占图像高度比例）
 
 # 物体检测主流程
@@ -225,7 +225,7 @@ def detect_object(img):
     """
     # 计算图像尺寸和区域阈值
     img_area = img.width() * img.height()
-    min_area = min(int(img_area * DetectorConfig.area_threshold), DetectorConfig.min_pixels)
+    min_area = int(img_area * DetectorConfig.area_threshold)
 
     # 检测红色物体
     red_blobs = img.find_blobs(
@@ -264,7 +264,10 @@ def detect_object(img):
         }
 
     # 按v坐标排序（v越大越靠近图像下方，即越近）
-    all_blobs.sort(key=lambda x: x[0].cy())  # 选择y坐标最小的
+    all_blobs.sort(key=lambda x: (x[0].cy()))  # 选择y坐标最小的
+    if len(all_blobs) >= 2 and abs(all_blobs[0][0].cy() - all_blobs[1][0].cy() ) < 50:
+        all_blobs = all_blobs[0:2]
+        all_blobs.sort(key=lambda x: (x[0].cx()))  # 选择y坐标最小的
     target_blob, target_type = all_blobs[0]  # 选取最近的目标（v最大）
 
     # 提取目标特征
@@ -331,6 +334,38 @@ def test_camera_detection():
         clock.tick()
         img = sensor.snapshot()
 
+        # 计算图像尺寸和区域阈值
+        img_area = img.width() * img.height()
+        min_area = int(img_area * DetectorConfig.area_threshold)
+
+        # 检测红色物体
+        red_blobs = img.find_blobs(
+            DetectorConfig.threshold_red,
+            pixels_threshold=min_area,  # 使用较小的值
+            area_threshold=min_area,  # 使用较小的值
+            merge=DetectorConfig.merge_blobs,  # 是否合并区域
+            margin=1  # 允许边缘检测
+        )
+        # 将blob对象和颜色类型打包在元组中
+        red_blobs = [b for b in red_blobs if ((b.pixels() > min_area) and (b.cy() > img.height() * DetectorConfig.v_min_ratio) and (b.cy() < img.height() * DetectorConfig.v_max_ratio))] if red_blobs else []
+
+        # 检测黄色物体
+        yellow_blobs = img.find_blobs(
+            DetectorConfig.threshold_yellow,
+            pixels_threshold=min_area,  # 使用较小的值
+            area_threshold=min_area,  # 使用较小的值
+            merge=DetectorConfig.merge_blobs,  # 是否合并区域
+            margin=1  # 允许边缘检测
+        )
+        # 将blob对象和颜色类型打包在元组中
+        yellow_blobs = [b for b in yellow_blobs if ((b.pixels() > min_area) and (b.cy() > img.height() * DetectorConfig.v_min_ratio) and (b.cy() < img.height() * DetectorConfig.v_max_ratio))] if yellow_blobs else []
+
+
+        detected_count = {'red': 0, 'yellow': 0}
+
+        # 运行标准检测流程
+        result = detect_object(img)
+
         # 绘制视野范围线
         v_min = int(img.height() * DetectorConfig.v_min_ratio)  # 最远可见行
         v_max = int(img.height() * DetectorConfig.v_max_ratio)  # 最近可见行
@@ -343,56 +378,7 @@ def test_camera_detection():
         img.draw_line(center_x, 0, center_x, img.height(), color=WHITE)  # 垂直线
         img.draw_line(0, center_y, img.width(), center_y, color=WHITE)  # 水平线
 
-        # 直接进行颜色检测，跳过形态学处理
-        # 检测红色物体
-        red_blobs = img.find_blobs(
-            DetectorConfig.threshold_red, # type: ignore
-            pixels_threshold=min(DetectorConfig.min_pixels, int(img.width() * img.height() * DetectorConfig.area_threshold)),
-            area_threshold=min(DetectorConfig.min_pixels, int(img.width() * img.height() * DetectorConfig.area_threshold)),
-            merge=False,
-            margin=1
-        )
 
-        # 检测黄色物体
-        yellow_blobs = img.find_blobs(
-            DetectorConfig.threshold_yellow, # type: ignore
-            pixels_threshold=min(DetectorConfig.min_pixels, int(img.width() * img.height() * DetectorConfig.area_threshold)),
-            area_threshold=min(DetectorConfig.min_pixels, int(img.width() * img.height() * DetectorConfig.area_threshold)),
-            merge=False,
-            margin=1
-        )        # 标记所有检测到的物体
-        detected_count = {'red': 0, 'yellow': 0}
-
-        # 绘制所有红色物体
-        if red_blobs:
-            for blob in red_blobs:
-                # 绘制矩形框
-                img.draw_rectangle(blob.x(), blob.y(), blob.w(), blob.h(), color=RED)
-                # 绘制十字标记
-                img.draw_cross(blob.cx(), blob.cy(), color=MAGENTA, size=10)
-                # 显示面积信息
-                area_percent = (blob.pixels() / (img.width() * img.height())) * 100
-                img.draw_string(blob.x(), blob.y()-10,
-                              f"R{detected_count['red']+1}: {area_percent:.1f}%",
-                              color=RED, scale=1)
-                detected_count['red'] += 1
-
-        # 绘制所有黄色物体
-        if yellow_blobs:
-            for blob in yellow_blobs:
-                # 绘制矩形框
-                img.draw_rectangle(blob.x(), blob.y(), blob.w(), blob.h(), color=YELLOW)
-                # 绘制十字标记
-                img.draw_cross(blob.cx(), blob.cy(), color=CYAN, size=10)
-                # 显示面积信息
-                area_percent = (blob.pixels() / (img.width() * img.height())) * 100
-                img.draw_string(blob.x(), blob.y()-10,
-                              f"Y{detected_count['yellow']+1}: {area_percent:.1f}%",
-                              color=YELLOW, scale=1)
-                detected_count['yellow'] += 1
-
-        # 运行标准检测流程
-        result = detect_object(img)
         if result['IS_FIND_TARGET']:
             # 标记选中的目标
             x, y = result['u_target'], result['v_target']
@@ -423,6 +409,38 @@ def test_camera_detection():
         else:
             img.draw_string(5, img.height()-30, "No Target Selected",
                           color=WHITE, scale=1)
+
+
+        # 绘制所有红色物体
+        if red_blobs:
+            for blob in red_blobs:
+                # 绘制矩形框
+                img.draw_rectangle(blob.x(), blob.y(), blob.w(), blob.h(), color=RED)
+                # 绘制十字标记
+                img.draw_cross(blob.cx(), blob.cy(), color=MAGENTA, size=10)
+                # 显示面积信息
+                area_percent = (blob.pixels() / (img.width() * img.height())) * 100
+                img.draw_string(blob.x(), blob.y()-10,
+                              f"R{detected_count['red']+1}: {area_percent:.1f}%",
+                              color=RED, scale=1)
+                detected_count['red'] += 1
+
+        # 绘制所有黄色物体
+        if yellow_blobs:
+            for blob in yellow_blobs:
+                # 绘制矩形框
+                img.draw_rectangle(blob.x(), blob.y(), blob.w(), blob.h(), color=YELLOW)
+                # 绘制十字标记
+                img.draw_cross(blob.cx(), blob.cy(), color=CYAN, size=10)
+                # 显示面积信息
+                area_percent = (blob.pixels() / (img.width() * img.height())) * 100
+                img.draw_string(blob.x(), blob.y()-10,
+                              f"Y{detected_count['yellow']+1}: {area_percent:.1f}%",
+                              color=YELLOW, scale=1)
+                detected_count['yellow'] += 1
+
+
+
 
         # 显示检测统计和帧率
         img.draw_string(5, 10, f"Red: {detected_count['red']} Yellow: {detected_count['yellow']}",

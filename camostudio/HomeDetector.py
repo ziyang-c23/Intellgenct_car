@@ -14,8 +14,17 @@ HomeDetector 家区域检测模块
     HomeDetector：主检测器类
         - 支持自定义检测class HomeDetector:
     
-    家区域检测器类，用于智能小车比赛中检测和分析黑色目标区域。
+    家区域检测器类，用于智能小车比赛中检测和分析黑色目标区class HomeDetector:
+    ""
+    HomeDetector类用于检测画面中的"家"区域（黑色区域），同时支持自己家（左下角）
+    和对手家（右上角）的检测。通过HSV颜色分割、轮廓分析和几何特征提取，能够精确
+    识别目标区域并验证其有效性。
     
+    主要方法包括：检测(detect)、结果绘制(draw_results)、角度计算(calculate_angles)
+    以及区域验证(validate_self_home/validate_opponent_home)等。
+    
+    适用于智能小车比赛中的区域识别、机器人导航定位以及边界检测与跟踪等场景。
+    ""
     主要功能：
         1. 图像处理和分割：
            - HSV颜色空间转换
@@ -173,55 +182,65 @@ class HomeConfig:
 @dataclass
 class HomeInfo:
     """
-    家区域检测结果信息类
+    家区域检测结果信息类，同时包含自己家和对方家的完整检测信息
     
-    属性说明：
-        quad: np.ndarray
-            四边形顶点坐标数组
+    自己家区域属性(Self_开头)：
+        Self_Quad: np.ndarray
+            自己家四边形顶点坐标数组
             - 形状为(4,2)，每行表示一个顶点的[x,y]坐标
             - 顺序为：左上、右上、右下、左下
             - 数据类型为整数
             
-        center: tuple
-            区域中心点坐标(x,y)
+        Self_Center: tuple
+            自己家区域中心点坐标(x,y)
             - 使用质心或顶点平均值计算
             - 用于定位和导航
             
-        area: float
-            区域面积（像素）
+        Self_Area: float
+            自己家区域面积（像素）
             - 通过轮廓计算
             - 用于验证检测结果
             
-        perimeter: float
-            区域周长（像素）
+        Self_Perimeter: float
+            自己家区域周长（像素）
             - 轮廓的弧长
             - 用于形状分析
             
-        aspect_ratio: float
-            宽高比
+        Self_Aspect_Ratio: float
+            自己家区域宽高比
             - 最小外接矩形的宽高比
             - 用于验证形状
             
-        angles: list
-            四个角的角度列表
+        Self_Angles: list
+            自己家区域四个角的角度列表
             - 按顶点顺序存储
             - 单位为度
             - 理想值应接近90度
             
-        valid: bool
-            检测结果的有效性标志
+        Self_Valid: bool
+            自己家检测结果的有效性标志
             - True：满足所有验证条件
             - False：未通过验证
-    
+            
+    对方家区域属性(Opponent_开头)：
+        与自己家区域属性结构相同，但表示对方家区域的信息
+        
     使用示例：
         result = HomeInfo(
-            quad=np.array([[x1,y1], [x2,y2], [x3,y3], [x4,y4]]),
-            center=(cx,cy),
-            area=1000.0,
-            perimeter=200.0,
-            aspect_ratio=1.2,
-            angles=[88.5, 91.2, 89.8, 90.5],
-            valid=True
+            Self_Quad=np.array([[x1,y1], [x2,y2], [x3,y3], [x4,y4]]),
+            Self_Center=(cx,cy),
+            Self_Area=1000.0,
+            Self_Perimeter=200.0,
+            Self_Aspect_Ratio=1.2,
+            Self_Angles=[88.5, 91.2, 89.8, 90.5],
+            Self_Valid=True,
+            Opponent_Quad=np.array([[x1,y1], [x2,y2], [x3,y3], [x4,y4]]),
+            Opponent_Center=(cx,cy),
+            Opponent_Area=1000.0,
+            Opponent_Perimeter=200.0,
+            Opponent_Aspect_Ratio=1.2,
+            Opponent_Angles=[88.5, 91.2, 89.8, 90.5],
+            Opponent_Valid=True
         )
     """
     Self_Quad: np.ndarray       # 自己区域四边形顶点坐标 (4,2)
@@ -394,6 +413,35 @@ class HomeDetector:
         return True
 
     def validate_opponent_home(self, info: HomeInfo) -> bool:
+        """
+        验证检测到的对方区域是否为有效的家区域。
+
+        验证标准：
+            1. 面积检查
+               - 最小面积：{self.config.min_area} 像素
+               - 最大面积：{self.config.max_area} 像素
+               - 过滤过小或过大的区域
+               
+            2. 形状验证
+               - 宽高比范围：{self.config.aspect_ratio_range}
+               - 检查区域是否过于狭长
+               - 保证形状近似方形
+               
+            3. 角度验证
+               - 容差范围：±{self.config.angle_threshold}度
+               - 检查四个角是否接近90度
+               - 确保形状为矩形
+               
+        参数：
+            info: HomeInfo
+                待验证的检测结果对象
+                必须包含所有对方区域的几何特征参数
+                
+        返回：
+            bool：验证结果
+            - True: 满足所有验证条件
+            - False: 任一条件不满足
+        """
         if info.Opponent_Area < self.config.min_area or info.Opponent_Area > self.config.max_area:
             return False
         if not (self.config.aspect_ratio_range[0] <= info.Opponent_Aspect_Ratio <= self.config.aspect_ratio_range[1]):
@@ -405,8 +453,40 @@ class HomeDetector:
 
     def detect(self, hsv: np.ndarray) -> Optional[HomeInfo]:
         """
-        检测画面中的自己家（左下角）和对手家（右上角），
-        并分别返回检测结果。
+        检测画面中的自己家（左下角）和对手家（右上角），并返回检测结果。
+        
+        处理流程：
+            1. 颜色分割
+               - 使用HSV阈值分割黑色区域
+               - 应用形态学操作去除噪点、填充空洞
+               
+            2. 轮廓检测
+               - 提取外部轮廓
+               - 过滤小面积轮廓
+               
+            3. 特征提取
+               - 计算最小外接矩形
+               - 提取中心点和几何特征
+               - 计算角度信息
+               
+            4. 区域分类
+               - 基于象限划分自己家和对手家
+               - 以画面中心为参考点
+               - 左下象限为自己家
+               - 右上象限为对手家
+               
+            5. 结果验证
+               - 调用验证函数检查有效性
+               - 保存最终结果
+        
+        参数：
+            hsv: np.ndarray
+                输入的HSV格式图像
+                
+        返回：
+            Optional[HomeInfo]：检测结果对象
+            - 包含自己家和对手家的所有特征信息
+            - 如果两区域均未检测到，返回None
         """
 
         # 颜色阈值处理
@@ -507,13 +587,38 @@ class HomeDetector:
     def draw_results(self, frame: np.ndarray, result: Optional[HomeInfo]) -> np.ndarray:
         """
         在图像上绘制检测结果（同时支持自己家和对手家）。
-
-        自己家：
-            - 有效：绿色
-            - 无效：红色
-        对手家：
-            - 有效：蓝色
-            - 无效：橙色
+        
+        绘制内容：
+            1. 四边形轮廓
+               - 自己家（有效：绿色，无效：红色）
+               - 对手家（有效：蓝色，无效：橙色）
+               
+            2. 关键点标记
+               - 四个顶点（P1-P4）
+               - 中心点（红色）
+               
+            3. 文本信息
+               - 区域名称
+               - 中心点坐标
+               - 面积大小
+               - 宽高比
+               - 有效性状态
+               
+        参数：
+            frame: np.ndarray
+                要绘制的原始图像
+                
+            result: Optional[HomeInfo]
+                检测结果，包含两个区域的信息
+                若为None，则显示"No Home Detected"
+                
+        返回：
+            np.ndarray：添加了可视化信息的图像
+            
+        注意：
+            - 顶点编号按左上、右上、右下、左下顺序
+            - 文本信息靠近区域左上角显示
+            - 自己家和对手家文本分开显示避免重叠
         """
         if result is None:
             cv2.putText(frame, "No Home Detected", (20, 40),
@@ -521,6 +626,20 @@ class HomeDetector:
             return frame
 
         def draw_home(quad, center, area, aspect_ratio, valid, name, color_valid, color_invalid, text_offset=0):
+            """
+            在图像上绘制单个家区域的详细信息。
+            
+            参数:
+                quad: 四边形顶点坐标
+                center: 中心点坐标
+                area: 区域面积
+                aspect_ratio: 宽高比
+                valid: 区域有效性
+                name: 区域名称标识
+                color_valid: 有效区域的颜色
+                color_invalid: 无效区域的颜色
+                text_offset: 文本信息的垂直偏移量
+            """
             if quad is None or center is None:
                 return
             color = color_valid if valid else color_invalid

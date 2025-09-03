@@ -185,16 +185,18 @@ class ItemDetector:
         self.kernel = np.ones(config.kernel_size, np.uint8)
         self.last_result = None
 
-    def validate_item(self, item: ItemInfo) -> bool:
+    def validate_item(self, item: ItemInfo, frame: Optional[np.ndarray] = None) -> bool:
         """
         验证检测到的物体是否满足约束条件
         
         验证规则:
             1. 面积约束: min_area <= area <= max_area
             2. 形状约束: min_aspect_ratio <= width/height <= max_aspect_ratio
+            3. 黑色边界检测: 检查物体外围是否有黑色区域，如果有则物体位于目标区域，判定为无效
         
         参数:
             item (ItemInfo): 待验证的物体信息对象
+            frame (np.ndarray, optional): 原始图像帧，用于检测物体周围的黑色区域
             
         返回:
             bool: True表示物体有效，False表示无效
@@ -206,6 +208,46 @@ class ItemDetector:
         # 形状检查
         if not (self.config.min_aspect_ratio <= item.aspect_ratio <= self.config.max_aspect_ratio):
             return False
+            
+        # 检查物体是否被黑色区域包围（在目标区域内）
+        if frame is not None:
+            x, y, w, h = item.bbox
+            # 扩大检测区域，创建一个比物体外框稍大的区域
+            margin = 10  # 扩展边界的像素数
+            x_expanded = max(0, x - margin)
+            y_expanded = max(0, y - margin)
+            w_expanded = min(w + 2 * margin, frame.shape[1] - x_expanded)
+            h_expanded = min(h + 2 * margin, frame.shape[0] - y_expanded)
+            
+            # 创建物体掩码
+            mask = np.zeros((frame.shape[0], frame.shape[1]), dtype=np.uint8)
+            cv2.drawContours(mask, [item.contour], 0, 255, -1)
+            
+            # 创建物体扩展区域的掩码（物体外围区域）
+            expanded_area = np.zeros_like(mask)
+            cv2.rectangle(expanded_area, (x_expanded, y_expanded), 
+                         (x_expanded + w_expanded, y_expanded + h_expanded), 255, -1)
+            # 从扩展区域中减去物体区域，得到物体外围区域
+            perimeter_area = cv2.subtract(expanded_area, mask)
+            
+            # 检查这个外围区域是否包含黑色像素
+            if np.sum(perimeter_area) > 0:  # 确保外围区域存在
+                # 从原始图像中提取外围区域
+                perimeter_mask = perimeter_area > 0
+                roi = frame[perimeter_mask]
+                
+                if len(roi) > 0:  # 确保ROI不为空
+                    # 定义黑色的BGR阈值（较低的BGR值表示黑色）
+                    black_threshold = 50
+                    # 计算外围区域中黑色像素的比例
+                    black_pixels = np.sum((roi[:, 0] < black_threshold) & 
+                                         (roi[:, 1] < black_threshold) & 
+                                         (roi[:, 2] < black_threshold))
+                    black_ratio = black_pixels / len(roi)
+                    
+                    # 如果黑色像素比例超过阈值，则认为物体在目标区域内，标记为无效
+                    if black_ratio > 0.3:  # 可以调整这个阈值
+                        return False
             
         return True
 
@@ -247,7 +289,7 @@ class ItemDetector:
                               iterations=self.config.morph_iterations)
         return mask
 
-    def _extract_objects(self, mask: np.ndarray, label: str) -> List[ItemInfo]:
+    def _extract_objects(self, mask: np.ndarray, label: str, frame: Optional[np.ndarray] = None) -> List[ItemInfo]:
         """
         从二值掩码中提取物体信息
         
@@ -264,6 +306,7 @@ class ItemDetector:
         参数:
             mask (np.ndarray): 二值掩码图像
             label (str): 物体类型标签('red'或'yellow')
+            frame (Optional[np.ndarray]): 原始图像帧，用于检测物体周围的黑色区域
         
         返回:
             List[ItemInfo]: 检测到的有效物体列表，按面积降序排序
@@ -306,7 +349,7 @@ class ItemDetector:
             )
             
             # 验证物体
-            item.valid = self.validate_item(item)
+            item.valid = self.validate_item(item, frame)
             if item.valid:  # 只添加有效的物体
                 items.append(item)
                 
@@ -314,7 +357,7 @@ class ItemDetector:
         items.sort(key=lambda x: x.area, reverse=True)
         return items
 
-    def detect(self, hsv: np.ndarray) -> List[Dict]:
+    def detect(self, hsv: np.ndarray, frame: Optional[np.ndarray] = None) -> List[Dict]:
         """
         检测画面中的红色和黄色物体
         
@@ -327,6 +370,7 @@ class ItemDetector:
         
         参数:
             hsv (np.ndarray): HSV格式的输入图像
+            frame (Optional[np.ndarray]): 原始BGR图像，用于检测物体周围的黑色区域
             
         返回:
             List[Dict]: 检测到的所有物体信息，每个物体表示为一个字典
@@ -342,8 +386,8 @@ class ItemDetector:
         yellow_mask = self._mask_color(hsv, "yellow")
         
         # 提取物体
-        red_items = self._extract_objects(red_mask, "red")
-        yellow_items = self._extract_objects(yellow_mask, "yellow")
+        red_items = self._extract_objects(red_mask, "red", frame)
+        yellow_items = self._extract_objects(yellow_mask, "yellow", frame)
         
         # 组合结果并转换为字典格式（兼容性）
         return [item.to_dict() for item in (red_items + yellow_items)]
@@ -469,7 +513,7 @@ if __name__ == "__main__":
                 print("无法读取摄像头")
                 break
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            items = detector.detect(hsv)
+            items = detector.detect(hsv, frame)
             h_, w_ = frame.shape[:2]
             center_point = (w_ // 2, h_ // 2)
             nearest = ItemDetector.nearest_to(center_point, items)
@@ -494,7 +538,7 @@ if __name__ == "__main__":
                 print(f"无法读取图片: {img_path}")
             else:
                 hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-                items = detector.detect(hsv)
+                items = detector.detect(hsv, img)
                 h_, w_ = img.shape[:2]
                 center_point = (w_ // 2, h_ // 2)
                 nearest = ItemDetector.nearest_to(center_point, items)
