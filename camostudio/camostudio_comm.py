@@ -219,7 +219,10 @@ def send_camostudio_data(ser: serial.Serial, data_dict: dict, header: int = 0xAA
         if not isinstance(data_dict, dict):
             raise ValueError("数据必须是字典类型")
 
-        required_keys = ['SEARCH_OBJ_NUM', 'item_angle', 'item_distance', 'home_angle', 'home_distance', 'item_out_of_bounds']
+        required_keys = ['SEARCH_OBJ_NUM', 'item_angle', 'item_distance', 
+                         'self_home_angle', 'self_home_distance', 
+                         'oppo_home_angle', 'oppo_home_distance',
+                         'item_out_of_bounds']
         for key in required_keys:
             if key not in data_dict:
                 raise ValueError(f"数据字典缺少必要的键: {key}")
@@ -228,8 +231,10 @@ def send_camostudio_data(ser: serial.Serial, data_dict: dict, header: int = 0xAA
         search_obj_num = data_dict['SEARCH_OBJ_NUM']
         item_angle = data_dict['item_angle']
         item_distance = data_dict['item_distance']
-        home_angle = data_dict['home_angle']
-        home_distance = data_dict['home_distance']
+        self_home_angle = data_dict['self_home_angle']
+        self_home_distance = data_dict['self_home_distance']
+        oppo_home_angle = data_dict['oppo_home_angle']
+        oppo_home_distance = data_dict['oppo_home_distance']
         item_out_of_bounds = data_dict['item_out_of_bounds']
         
         # 验证头部和尾部标识符
@@ -265,8 +270,10 @@ def send_camostudio_data(ser: serial.Serial, data_dict: dict, header: int = 0xAA
                            item_out_of_bounds & 0xFF,
                            item_angle,
                            item_distance,
-                           home_angle,
-                           home_distance,
+                           self_home_angle,
+                           self_home_distance,
+                            oppo_home_angle,
+                            oppo_home_distance,
                            tail & 0xFF)
         
         # 发送数据包

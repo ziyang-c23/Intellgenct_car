@@ -121,36 +121,14 @@ def extract_vision_data(vision_results: Dict) -> Dict[str, int]:
     try:
         result = {
             'SEARCH_OBJ_NUM': 0,
-            'fence_x1': 0, 'fence_y1': 0,
-            'fence_x2': 0, 'fence_y2': 0,
-            'fence_x3': 0, 'fence_y3': 0,
-            'fence_x4': 0, 'fence_y4': 0,
-            'home_x': 0, 'home_y': 0,
             'item_angle': 0,
             'item_distance': 0,
-            'home_angle': 0,
-            'home_distance': 0,
+            'self_home_angle': 0,
+            'self_home_distance': 0,
+            'oppo_home_angle': 0,
+            'oppo_home_distance': 0,
             'item_out_of_bounds': 0  # 表示最近物体是否超出内收矩形区域，0=否，1=是
         }
-        
-        # 1. 提取围栏顶点（按顺时针顺序）
-        if vision_results['fence'] and vision_results['fence'].quad is not None:
-            quad = vision_results['fence'].quad
-            # quad是一个4x2的numpy数组，每行是一个顶点的[x,y]坐标
-            for i in range(4):
-                x, y = quad[i]
-                result[f'fence_x{i+1}'] = int(round(x))
-                result[f'fence_y{i+1}'] = int(round(y))
-        else:
-            print("警告: 未检测到有效围栏")
-            
-        # 2. 提取目标区域（家）中心点
-        if vision_results['home'] and vision_results['home'].Self_Center:
-            hx, hy = vision_results['home'].Self_Center
-            result['home_x'] = int(round(hx))
-            result['home_y'] = int(round(hy))
-        else:
-            print("警告: 未检测到有效家区域")
 
         result['SEARCH_OBJ_NUM'] = len(vision_results['items'])
 
@@ -174,18 +152,26 @@ def extract_vision_data(vision_results: Dict) -> Dict[str, int]:
             result['item_out_of_bounds'] = 0  # 无效物体超界标志为0
             
         # 4. 提取到家的相对位置信息
-        if nav_info['home_relative_angle'] is not None and nav_info['home_distance'] is not None:
+        if nav_info['self_home_relative_angle'] is not None and nav_info['self_home_distance'] is not None:
             # 相对角度（乘以10以保留一位小数）
-            home_angle = nav_info['home_relative_angle']
-            result['home_angle'] = int(round(home_angle * 10))
-            
+            home_angle = nav_info['self_home_relative_angle']
+            result['self_home_angle'] = int(round(home_angle * 10))
+
             # 距离（像素）
-            result['home_distance'] = int(round(nav_info['home_distance']))
+            result['self_home_distance'] = int(round(nav_info['self_home_distance']))
         else:
             # 没有有效的导航信息，将无效值设为0
-            result['home_angle'] = 0  # 无效角度设为0
-            result['home_distance'] = 0  # 无效距离设为0
-            
+            result['self_home_angle'] = 0  # 无效角度设为0
+            result['self_home_distance'] = 0  # 无效距离设为0
+
+        if nav_info['oppo_home_relative_angle'] is not None and nav_info['oppo_home_distance'] is not None:
+            # 相对角度（乘以10以保留一位小数）
+            home_angle = nav_info['oppo_home_relative_angle']
+            result['oppo_home_angle'] = int(round(home_angle * 10))
+
+            # 距离（像素）
+            result['oppo_home_distance'] = int(round(nav_info['oppo_home_distance']))
+
         return result
         
     except Exception as e:
@@ -193,15 +179,12 @@ def extract_vision_data(vision_results: Dict) -> Dict[str, int]:
         # 出现异常时返回所有值为0的字典，确保通信不会因为None而出错
         return {
             'SEARCH_OBJ_NUM': 0,
-            'fence_x1': 0, 'fence_y1': 0,
-            'fence_x2': 0, 'fence_y2': 0,
-            'fence_x3': 0, 'fence_y3': 0,
-            'fence_x4': 0, 'fence_y4': 0,
-            'home_x': 0, 'home_y': 0,
             'item_angle': 0,
             'item_distance': 0,
-            'home_angle': 0,
-            'home_distance': 0,
+            'self_home_angle': 0,
+            'self_home_distance': 0,
+            'oppo_home_angle': 0,
+            'oppo_home_distance': 0,
             'item_out_of_bounds': 0
         }
 
@@ -308,14 +291,19 @@ class VisionSystem:
                 'item_distance': None,         # float - 相对距离（像素）
                 
                 # 到家的相对位置信息
-                'home_relative_angle': None,  # float - 到家的相对方位角（度数），范围[-180, 180]
-                'home_distance': None         # float - 到家的相对距离（像素）
+                'self_home_relative_angle': None,  # float - 到家的相对方位角（度数），范围[-180, 180]
+                'self_home_distance': None         # float - 到家的相对距离（像素）
+
+                'oppo_home_relative_angle': None,  # float - 到家的相对方位角（度数），范围[-180, 180]
+                'oppo_home_distance': None         # float - 到家的相对距离（像素）
             }
 
         }
         
-        self.u_last_home = 0
-        self.v_last_home = 0
+        self.u_last_self_home = 0
+        self.v_last_self_home = 0
+        self.u_last_oppo_home = 0
+        self.v_last_oppo_home = 0
         self.u_last_item = 0
         self.v_last_item = 0
         # 性能指标
@@ -441,7 +429,7 @@ class VisionSystem:
         if valid_items:
             valid_items.sort(key=lambda x: x['distance_px'])
             if len(valid_items) > 2:
-                valid_items = valid_items[:2]
+                valid_items = valid_items[:3]
                 valid_items.sort(key=lambda x: x['dist2last_px'])
             nav_info['nearest_item'] = valid_items[0]
             self.u_last_item, self.v_last_item = nav_info['nearest_item']['center']
@@ -521,7 +509,7 @@ class VisionSystem:
             'delta_uv': (delta_u, delta_v)
         }
 
-    def compute_home_relative_position(self):
+    def compute_self_home_relative_position(self):
         """
         计算小车到家的相对方位信息
         
@@ -572,10 +560,97 @@ class VisionSystem:
         if not hasattr(self.results['fence'], 'quad'):
             return
         if self.results['fence'].quad is None or len(self.results['fence'].quad) != 4:
-            u_home, v_home = self.u_last_home, self.v_last_home
+            u_home, v_home = self.u_last_self_home, self.v_last_self_home
         else :
             u_home, v_home = self.results['fence'].quad[3]
-            self.u_last_home, self.v_last_home = u_home, v_home
+            self.u_last_self_home, self.v_last_self_home = u_home, v_home
+
+        # if cnt == 0:
+        #     u_home, v_home = self.results['home'].Self_Center
+        #     self.u_last_home, self.v_last_home = u_home, v_home
+        #     cnt = 1
+        # if cnt == 1:
+        #     u_home, v_home = self.u_last_home, self.v_last_home
+        # u_home, v_home = 400, 650
+
+        # 计算位移向量
+        delta_u = float(u_home - u_car)
+        delta_v = float(v_home - v_car)
+        
+        # 计算绝对方位角（度数）
+        angle = np.degrees(np.arctan2(delta_v, delta_u))
+        
+        # 计算相对方位角（度数）
+        relative_angle = angle - (nav_info['car_angle'] - 180)
+        
+        # 归一化到 [-180, 180]
+        relative_angle = (relative_angle + 180) % 360 - 180
+        
+        # 计算距离
+        distance = np.hypot(delta_u, delta_v)
+        
+        # 返回计算结果
+        return {
+            'relative_angle_deg': float(relative_angle),
+            'distance_px': float(distance),
+            'delta_uv': (delta_u, delta_v)
+        }
+    
+    def compute_oppo_home_relative_position(self):
+        """
+        计算小车到对方家的相对方位信息
+
+        计算原理：
+        1. 位移向量计算
+           - 计算家相对车体的位移向量(Δu, Δv)
+           - Δu = u_home - u_car（水平位移）
+           - Δv = v_home - v_car（垂直位移）
+        
+        2. 方位角计算
+           - 计算家相对车体的绝对方位角α = arctan2(Δv, Δu)
+           - 计算相对方位角β = α - θ（θ为车头朝向）
+           - 结果归一化到[-180°, 180°]范围内
+           - 正值表示家在车头右侧，负值表示在左侧
+        
+        3. 距离计算
+           - 计算车辆到家的直线距离d = sqrt(Δu² + Δv²)
+           - 单位为像素
+           
+        应用场景：
+        - 任务完成后返回家的导航
+        - 定位状态评估
+        - 通信发送：提供给STM32控制器的导航数据
+            
+        返回:
+            Dict: 包含相对方位信息的字典，无法计算时返回None
+                - relative_angle_deg: float, 相对方位角（度）
+                - distance_px: float, 像素距离
+                - delta_uv: Tuple[float, float], 位移向量
+        """
+        global cnt
+
+        nav_info = self.results['navigation']
+        
+        # 验证必要条件
+        # if (not self.results['home'] or 
+        #     not self.results['home'].Self_Center):
+        #     return None
+        
+        if (not nav_info['car_pos'] or 
+            nav_info['car_angle'] is None):
+            return 
+            
+        # 提取坐标
+        u_car, v_car = nav_info['car_pos']
+        # u_home, v_home = self.results['home'].Self_Center
+
+        if not hasattr(self.results['fence'], 'quad'):
+            return
+        if self.results['fence'].quad is None or len(self.results['fence'].quad) != 4:
+            u_home, v_home = self.u_last_oppo_home, self.v_last_oppo_home
+        else :
+            u_home, v_home = self.results['fence'].quad[1]
+            self.u_last_oppo_home, self.v_last_oppo_home = u_home, v_home
 
         # if cnt == 0:
         #     u_home, v_home = self.results['home'].Self_Center
@@ -819,14 +894,22 @@ class VisionSystem:
                 nav_info['item_distance'] = None
         
         # 计算到家的相对位置
-        home_pos_info = self.compute_home_relative_position()
-        if home_pos_info:
-            nav_info['home_relative_angle'] = home_pos_info['relative_angle_deg']
-            nav_info['home_distance'] = home_pos_info['distance_px']
+        self_home_pos_info = self.compute_self_home_relative_position()
+        if self_home_pos_info:
+            nav_info['self_home_relative_angle'] = self_home_pos_info['relative_angle_deg']
+            nav_info['self_home_distance'] = self_home_pos_info['distance_px']
         else:
-            nav_info['home_relative_angle'] = None
-            nav_info['home_distance'] = None
-        
+            nav_info['self_home_relative_angle'] = None
+            nav_info['self_home_distance'] = None
+        # 计算到对方家的相对位置
+        oppo_home_pos_info = self.compute_oppo_home_relative_position()
+        if oppo_home_pos_info:
+            nav_info['oppo_home_relative_angle'] = oppo_home_pos_info['relative_angle_deg']
+            nav_info['oppo_home_distance'] = oppo_home_pos_info['distance_px']
+        else:
+            nav_info['oppo_home_relative_angle'] = None
+            nav_info['oppo_home_distance'] = None
+
         # 在图像上绘制所有检测结果
         output = self.draw_all_results(frame.copy())
         
@@ -1140,13 +1223,13 @@ def process_image(image_path: str, save_result: bool = True) -> np.ndarray:
     else:
         print("  未检测到有效目标")
         
-    print("\n到家的相对位置:")
-    if nav_info['home_relative_angle'] is not None and nav_info['home_distance'] is not None:
-        print(f"  到家距离: {nav_info['home_distance']:.1f}像素")
-        print(f"  相对方位角: {nav_info['home_relative_angle']:.1f}°")
+    print("\n到自己家的相对位置:")
+    if nav_info['self_home_relative_angle'] is not None and nav_info['self_home_distance'] is not None:
+        print(f"  到自己家距离: {nav_info['self_home_distance']:.1f}像素")
+        print(f"  相对方位角: {nav_info['self_home_relative_angle']:.1f}°")
     else:
-        print("  未能计算到家的相对位置")
-    
+        print("  未能计算到自己的相对位置")
+
     # 保存结果
     if save_result:
         # 生成输出文件名
