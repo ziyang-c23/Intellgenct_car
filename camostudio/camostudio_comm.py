@@ -109,6 +109,40 @@ def send_int_command(ser: serial.Serial, value: int) -> bool:
     except (serial.SerialException, ValueError) as e:
         raise SerialCommError(f"发送失败: {str(e)}")
 
+def receive_str_response(ser: serial.Serial, timeout: float = 1.0) -> Optional[str]:
+    """
+    接收STM32返回的字符串数据
+    
+    参数:
+        ser: 串口对象，必须是已打开的串口
+        timeout: 等待超时时间（秒），默认1秒
+    
+    返回:
+        str: 接收到的字符串
+        None: 超时或未接收到数据时返回
+    
+    异常:
+        SerialCommError: 接收出错时抛出（串口错误）
+    
+    说明:
+        接收数据采用readline方法，预期数据末尾有换行符
+        使用decode时忽略可能出现的解码错误，提高通信稳定性
+    """
+    try:
+        # 设置超时
+        ser.timeout = timeout
+        
+        # 读取一行数据
+        response = ser.readline().decode(errors='ignore').strip()
+        
+        # 检查是否接收到数据
+        if response:
+            return response
+        return None
+        
+    except serial.SerialException as e:
+        raise SerialCommError(f"接收失败: {str(e)}")
+
 def receive_int_response(ser: serial.Serial, timeout: float = 1.0) -> Optional[int]:
     """
     接收STM32返回的整型数据
@@ -214,23 +248,25 @@ def send_camostudio_data(ser: serial.Serial, data_dict: dict, header: int = 0xAA
         target_angle = 0
         target_distance = 0
         
-        if search_obj_num > 0:
-            # 如果有物体，传输物体信息
-            target_angle = item_angle
-            target_distance = item_distance
-            print(f"打包物体信息: 角度={target_angle}, 距离={target_distance}")
-        else:
-            # 如果没有物体，传输家的信息
-            target_angle = home_angle
-            target_distance = home_distance
-            print(f"打包家的信息: 角度={target_angle}, 距离={target_distance}")
+        # if search_obj_num > 0:
+        #     # 如果有物体，传输物体信息
+        #     target_angle = item_angle
+        #     target_distance = item_distance
+        #     print(f"打包物体信息: 角度={target_angle}, 距离={target_distance}")
+        # else:
+        #     # 如果没有物体，传输家的信息
+        #     target_angle = home_angle
+        #     target_distance = home_distance
+        #     print(f"打包家的信息: 角度={target_angle}, 距离={target_distance}")
         
-        packet = struct.pack('<BBBhhB',
+        packet = struct.pack('<BBBhhhhB',
                            header & 0xFF,
                            search_obj_num & 0xFF,
                            item_out_of_bounds & 0xFF,
-                           target_angle,
-                           target_distance,
+                           item_angle,
+                           item_distance,
+                           home_angle,
+                           home_distance,
                            tail & 0xFF)
         
         # 发送数据包

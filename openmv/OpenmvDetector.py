@@ -160,7 +160,7 @@ class DetectorConfig:
 # 物体检测主流程
 
 
-def detect_object(img):
+def detect_object(img, u_last, v_last):
     """
     目标检测与定位核心函数
     ---------------------
@@ -261,18 +261,20 @@ def detect_object(img):
             'd_norm': None,
             'area': None,
             'type': None
-        }
+        }, u_last, v_last
 
     # 按v坐标排序（v越大越靠近图像下方，即越近）
     all_blobs.sort(key=lambda x: (x[0].cy()))  # 选择y坐标最小的
-    if len(all_blobs) >= 2 and abs(all_blobs[0][0].cy() - all_blobs[1][0].cy() ) < 50:
+    if len(all_blobs) >= 2:
         all_blobs = all_blobs[0:2]
-        all_blobs.sort(key=lambda x: (x[0].cx()))  # 选择y坐标最小的
+        all_blobs.sort(key=lambda x: (abs(x[0].cx() - u_last) + abs(x[0].cy() - v_last)))  # 选择y坐标最小的
     target_blob, target_type = all_blobs[0]  # 选取最近的目标（v最大）
 
     # 提取目标特征
     u_target = target_blob.cx()                   # 目标中心横坐标
     v_target = target_blob.cy()                   # 目标中心纵坐标
+    u_last = u_target
+    v_last = v_target
     u_centerline = img.width() // 2              # 图像中心线
     delta_u = u_target - u_centerline            # 水平偏移量
 
@@ -284,8 +286,7 @@ def detect_object(img):
     v_clipped = max(min(v_target, v_max), v_min)
     d_norm = 1.0 - (v_clipped - v_min) / (v_max - v_min)
 
-    # 返回检测结果字典
-    return {
+    result = {
         'IS_FIND_TARGET': IS_FIND_TARGET,  # 是否找到目标物体
         'u_target': u_target,      # 目标中心横坐标
         'v_target': v_target,      # 目标中心纵坐标
@@ -294,6 +295,8 @@ def detect_object(img):
         'area': target_blob.pixels(),   # 目标面积
         'type': target_type        # 物体类型
     }
+    # 返回检测结果字典
+    return result, u_last, v_last
 
 def test_camera_detection():
     """
@@ -329,6 +332,7 @@ def test_camera_detection():
     WHITE = (255, 255, 255)# 文字和中心线
     CYAN = (0, 255, 255)   # 黄色目标中心点
     MAGENTA = (255, 0, 255)# 红色目标中心点
+    u_last, v_last = 160, 120  # 初始化上次目标位置为图像中心
 
     while True:
         clock.tick()
@@ -364,7 +368,7 @@ def test_camera_detection():
         detected_count = {'red': 0, 'yellow': 0}
 
         # 运行标准检测流程
-        result = detect_object(img)
+        result, u_last, v_last = detect_object(img, u_last, v_last)
 
         # 绘制视野范围线
         v_min = int(img.height() * DetectorConfig.v_min_ratio)  # 最远可见行
@@ -453,13 +457,14 @@ def test_camera_detection():
 def test_image_detection():
     import image
     img_path = "test.jpg"  # 直接在此处指定图片路径
+    u_last, v_last = 160, 120  # 初始化上次目标位置为图像中心
     try:
         img = image.Image(img_path)
     except Exception as e:
         print(f"无法读取图片: {img_path}")
         print(e)
         return
-    result = detect_object(img)
+    result, u_last, v_last = detect_object(img, u_last, v_last)
     if result:
         print("检测到物体：", end=' ')
         print("中心(u,v):", result['u_target'], result['v_target'], end='; ')
@@ -476,7 +481,7 @@ def test_image_detection():
     while True:
         clock.tick()
         img = sensor.snapshot()
-        result = detect_object(img)
+        result, u_last, v_last = detect_object(img, u_last, v_last)
         if result:
             print("检测到物体：", end=' ')
             print("中心(u,v):", result['u_target'], result['v_target'], end='; ')

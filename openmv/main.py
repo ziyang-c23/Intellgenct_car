@@ -410,6 +410,9 @@ def main():
         clock = time.clock()
         print("开始检测循环...\n")
 
+        u_last, v_last = 160, 120  # 初始化上次目标位置为图像中心
+        
+
         while True:
             clock.tick()  # 开始计时
 
@@ -417,7 +420,7 @@ def main():
             img = sensor.snapshot()
 
             # 检测物体并处理结果
-            result = detect_object(img)
+            result, u_last, v_last = detect_object(img, u_last, v_last)
             process_detection_result(result, transmitter)
             time.sleep_ms(SystemConfig.UART_CONFIG['cycle'])  # 稍作延时，避免过快循环
             # 打印帧率

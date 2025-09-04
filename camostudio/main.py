@@ -48,7 +48,7 @@ from ArucoDetector import ArucoDetector
 from FenceDetector import FenceDetector
 from HomeDetector import HomeDetector
 from ItemDetector import ItemDetector
-from camostudio_comm import open_serial, close_serial, send_camostudio_data, SerialCommError
+from camostudio_comm import open_serial, close_serial, send_camostudio_data, receive_str_response, SerialCommError
 from typing import Dict, List, Optional, Tuple
 
 cnt = 0
@@ -557,23 +557,33 @@ class VisionSystem:
         nav_info = self.results['navigation']
         
         # 验证必要条件
-        if (not self.results['home'] or 
-            not self.results['home'].Self_Center):
-            return None
+        # if (not self.results['home'] or 
+        #     not self.results['home'].Self_Center):
+        #     return None
         
         if (not nav_info['car_pos'] or 
             nav_info['car_angle'] is None):
-            return None
+            return 
             
         # 提取坐标
         u_car, v_car = nav_info['car_pos']
-        if cnt == 0:
-            u_home, v_home = self.results['home'].Self_Center
-            self.u_last_home, self.v_last_home = u_home, v_home
-            cnt = 1
-        if cnt == 1:
+        # u_home, v_home = self.results['home'].Self_Center
+
+        if not hasattr(self.results['fence'], 'quad'):
+            return
+        if self.results['fence'].quad is None or len(self.results['fence'].quad) != 4:
             u_home, v_home = self.u_last_home, self.v_last_home
-        # u_home, v_home = 300, 650
+        else :
+            u_home, v_home = self.results['fence'].quad[3]
+            self.u_last_home, self.v_last_home = u_home, v_home
+
+        # if cnt == 0:
+        #     u_home, v_home = self.results['home'].Self_Center
+        #     self.u_last_home, self.v_last_home = u_home, v_home
+        #     cnt = 1
+        # if cnt == 1:
+        #     u_home, v_home = self.u_last_home, self.v_last_home
+        # u_home, v_home = 400, 650
 
         # 计算位移向量
         delta_u = float(u_home - u_car)
@@ -598,6 +608,41 @@ class VisionSystem:
             'delta_uv': (delta_u, delta_v)
         }
         
+    def valid_item_in_fence(self, items_result, fence_result):
+        # 如果围栏区域检测结果无效，直接返回
+        if not fence_result or not hasattr(fence_result, 'valid') or not fence_result.valid:
+            return
+        # 获取围栏区域的四边形顶点
+        if not hasattr(fence_result, 'quad'):
+            return
+
+        fence_quad = fence_result.quad
+        # 如果没有四边形数据，直接返回
+        if fence_quad is None or len(fence_quad) != 4:
+            return
+            
+        # 遍历所有物体
+        for item in items_result:
+            # 跳过无效物体
+            if not item.get('valid', True):
+                continue
+                
+            # 获取物体中心坐标
+            center = item.get('center')
+            if center is None:
+                continue
+                
+            # 创建点对象
+            point = np.array(center, dtype=np.float32)
+            
+            # 判断点是否在多边形内
+            result = cv2.pointPolygonTest(fence_quad, (float(center[0]), float(center[1])), False)
+            
+            # 如果点在多边形内（result > 0），将valid设置为False
+            if result <= 0:
+                item['valid'] = False
+                # print(f"物体({item.get('type', 'unknown')})在围栏区域内，不需要抓取")
+
     def valid_item_in_home(self, items_result, home_result):
         """
         检查物体是否在家区域内，并更新物体的valid标志
@@ -740,8 +785,11 @@ class VisionSystem:
         # 4. 物体检测 - 现在返回ItemInfo字典列表
         items_result = self.item_detector.detect(hsv)
 
+        # 检查物体是否在围栏区域内
+        self.valid_item_in_fence(items_result, fence_result)
+
         # 检查物体是否在家区域内
-        # self.valid_item_in_home(items_result, home_result)
+        self.valid_item_in_home(items_result, home_result)
         
         self.results['items'] = [item for item in items_result if item.get('valid', True)]
         
@@ -1111,7 +1159,7 @@ def process_image(image_path: str, save_result: bool = True) -> np.ndarray:
 
 def process_camera(camera_id: int = 0, serial_debug: int = 0):
     """
-    使用摄像头进行实时视觉检测
+    使用摄像头进行实时视觉检
     
     功能特点：
     1. 实时处理
@@ -1170,7 +1218,10 @@ def process_camera(camera_id: int = 0, serial_debug: int = 0):
             output = vision.process_frame(frame)
 
             if SER_DEBUG:
+                # vision.transmission_data["SEARCH_OBJ_NUM"] = 0
                 send_camostudio_data(ser, vision.transmission_data)
+                message = receive_str_response(ser, 1)
+                print(message)
             # 更新FPS
             frame_count += 1
             if frame_count >= 30:
@@ -1193,7 +1244,7 @@ def process_camera(camera_id: int = 0, serial_debug: int = 0):
                 save_path = f"camera_frame_{frame_save_count}.jpg"
                 cv2.imwrite(save_path, output)
                 print(f"\n当前帧已保存至: {save_path}")
-            time.sleep(0.10)
+            time.sleep(0.05)
 
     finally:
         # 清理资源
