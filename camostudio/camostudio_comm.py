@@ -264,17 +264,17 @@ def send_camostudio_data(ser: serial.Serial, data_dict: dict, header: int = 0xAA
         #     target_distance = home_distance
         #     print(f"打包家的信息: 角度={target_angle}, 距离={target_distance}")
         
-        packet = struct.pack('<BBBhhhhB',
-                           header & 0xFF,
-                           search_obj_num & 0xFF,
-                           item_out_of_bounds & 0xFF,
-                           item_angle,
-                           item_distance,
-                           self_home_angle,
-                           self_home_distance,
+        packet = struct.pack('<BBBhhhhhhB',
+                            header & 0xFF,
+                            search_obj_num & 0xFF,
+                            item_out_of_bounds & 0xFF,
+                            item_angle,
+                            item_distance,
+                            self_home_angle,
+                            self_home_distance,
                             oppo_home_angle,
                             oppo_home_distance,
-                           tail & 0xFF)
+                            tail & 0xFF)
         
         # 发送数据包
         bytes_sent = ser.write(packet)

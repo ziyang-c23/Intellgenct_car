@@ -292,7 +292,7 @@ class VisionSystem:
                 
                 # 到家的相对位置信息
                 'self_home_relative_angle': None,  # float - 到家的相对方位角（度数），范围[-180, 180]
-                'self_home_distance': None         # float - 到家的相对距离（像素）
+                'self_home_distance': None,         # float - 到家的相对距离（像素）
 
                 'oppo_home_relative_angle': None,  # float - 到家的相对方位角（度数），范围[-180, 180]
                 'oppo_home_distance': None         # float - 到家的相对距离（像素）
@@ -1001,7 +1001,7 @@ class VisionSystem:
         """
         h, w = frame.shape[:2]
         font = cv2.FONT_HERSHEY_SIMPLEX
-        margin = 10
+        margin = 20
         line_height = 30
         current_y = margin + line_height
         
@@ -1086,30 +1086,55 @@ class VisionSystem:
                 cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
                 current_y += line_height
                 
-        # 6. 添加到家的导航线
-        if nav_info['car_pos'] and self.results['home'] and self.results['home'].Self_Center:
+        # 6. 添加到自己家的导航线
+        if nav_info['car_pos'] and self.results['fence'].quad is not None and len(self.results['fence'].quad) == 4:
             # 绘制到家的导航线（使用蓝色区分）
             cv2.line(frame, 
                     tuple(map(int, nav_info['car_pos'])), 
-                    tuple(map(int, self.results['home'].Self_Center)), 
+                    tuple(map(int, self.results['fence'].quad[3])), 
                     (255, 0, 0), 2)  # 蓝色线
                     
             # 添加到家的导航信息
             home_info_lines = []
             
             # 方位角
-            if nav_info['home_relative_angle'] is not None:
-                home_info_lines.append(f"Home Angle: {nav_info['home_relative_angle']:.1f} deg")
-            
+            if nav_info['self_home_relative_angle'] is not None:
+                home_info_lines.append(f"Home Angle: {nav_info['self_home_relative_angle']:.1f} deg")
+
             # 距离
-            if nav_info['home_distance'] is not None:
-                home_info_lines.append(f"Home Dist: {nav_info['home_distance']:.1f}px")
-            
+            if nav_info['self_home_distance'] is not None:
+                home_info_lines.append(f"Home Dist: {nav_info['self_home_distance']:.1f}px")
+
             # 绘制信息
             color = (255, 0, 0)  # 蓝色
             for line in home_info_lines:
                 cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
-                current_y += line_height        # 6. 添加帧率显示（显示在右上角）
+                current_y += line_height
+
+        # 7. 添加到对方家的导航线
+        if nav_info['car_pos'] and self.results['fence'].quad is not None and len(self.results['fence'].quad) == 4:
+            # 绘制到家的导航线（使用紫色区分）
+            cv2.line(frame, 
+                    tuple(map(int, nav_info['car_pos'])), 
+                    tuple(map(int, self.results['fence'].quad[1])), 
+                    (255, 0, 255), 2)  # 紫色线
+            
+            # 添加到家的导航信息
+            oppo_home_info_lines = []
+            # 方位角
+            if nav_info['oppo_home_relative_angle'] is not None:
+                oppo_home_info_lines.append(f"Oppo Home Angle: {nav_info['oppo_home_relative_angle']:.1f} deg")
+            # 距离
+            if nav_info['oppo_home_distance'] is not None:
+                oppo_home_info_lines.append(f"Oppo Home Dist: {nav_info['oppo_home_distance']:.1f}px")
+            # 绘制信息
+            color = (255, 0, 255)  # 紫色
+            for line in oppo_home_info_lines:
+                cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
+                current_y += line_height
+
+
+        # 6. 添加帧率显示（显示在右上角）
         if hasattr(self, 'fps'):
             fps_text = f"FPS: {self.fps:.1f}"
             # 获取文本大小
