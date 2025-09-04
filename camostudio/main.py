@@ -564,7 +564,7 @@ class VisionSystem:
             u_home, v_home = self.u_last_self_home, self.v_last_self_home
         else :
             u_home, v_home = self.results['fence'].quad[3]
-            u_home, v_home = u_home - w_home//2, v_home + h_home//2 
+            u_home, v_home = u_home + w_home//2, v_home - h_home//2
             self.u_last_self_home, self.v_last_self_home = u_home, v_home
 
         # if cnt == 0:
@@ -1096,7 +1096,7 @@ class VisionSystem:
             # 绘制到家的导航线（使用蓝色区分）
             cv2.line(frame, 
                     tuple(map(int, nav_info['car_pos'])), 
-                    tuple(map(int, (self.results['fence'].quad[3][0] - w_home//2, self.results['fence'].quad[3][1] + h_home//2))), 
+                    tuple(map(int, (self.results['fence'].quad[3][0] + w_home//2, self.results['fence'].quad[3][1] - h_home//2))), 
                     (255, 0, 0), 2)  # 蓝色线
 
 
