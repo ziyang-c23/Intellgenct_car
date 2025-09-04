@@ -52,6 +52,7 @@ from camostudio_comm import open_serial, close_serial, send_camostudio_data, rec
 from typing import Dict, List, Optional, Tuple
 
 cnt = 0
+w_home, h_home = 150, 130
 
 def extract_vision_data(vision_results: Dict) -> Dict[str, int]:
     """
@@ -563,6 +564,7 @@ class VisionSystem:
             u_home, v_home = self.u_last_self_home, self.v_last_self_home
         else :
             u_home, v_home = self.results['fence'].quad[3]
+            u_home, v_home = u_home - w_home//2, v_home + h_home//2 
             self.u_last_self_home, self.v_last_self_home = u_home, v_home
 
         # if cnt == 0:
@@ -744,11 +746,12 @@ class VisionSystem:
             return
             
         home_quad = home_result.Self_Quad
-        
         # 如果没有四边形数据，直接返回
         if home_quad is None or len(home_quad) != 4:
             return
-            
+        
+        u, v = self.results['fence'].quad[3]
+        home_quad = np.array([[u, v-h_home], [u+w_home, v-h_home], [u+w_home, v], [u, v]])
         # 遍历所有物体
         for item in items_result:
             # 跳过无效物体
@@ -1086,14 +1089,17 @@ class VisionSystem:
                 cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
                 current_y += line_height
                 
+        u, v = self.results['fence'].quad[3]
+        cv2.rectangle(frame, (u + w_home, v - h_home), (u, v), (255, 0, 0), 2)
         # 6. 添加到自己家的导航线
         if nav_info['car_pos'] and self.results['fence'].quad is not None and len(self.results['fence'].quad) == 4:
             # 绘制到家的导航线（使用蓝色区分）
             cv2.line(frame, 
                     tuple(map(int, nav_info['car_pos'])), 
-                    tuple(map(int, self.results['fence'].quad[3])), 
+                    tuple(map(int, (self.results['fence'].quad[3][0] - w_home//2, self.results['fence'].quad[3][1] + h_home//2))), 
                     (255, 0, 0), 2)  # 蓝色线
-                    
+
+
             # 添加到家的导航信息
             home_info_lines = []
             
@@ -1326,10 +1332,11 @@ def process_camera(camera_id: int = 0, serial_debug: int = 0):
             output = vision.process_frame(frame)
 
             if SER_DEBUG:
-                # vision.transmission_data["SEARCH_OBJ_NUM"] = 0
+                vision.transmission_data["SEARCH_OBJ_NUM"] = 0
+                vision.transmission_data["item_out_of_bounds"] = 0
                 send_camostudio_data(ser, vision.transmission_data)
-                message = receive_str_response(ser, 1)
-                print(message)
+                # message = receive_str_response(ser, timeout=0.05)
+                # print(message)
             # 更新FPS
             frame_count += 1
             if frame_count >= 30:
@@ -1352,7 +1359,7 @@ def process_camera(camera_id: int = 0, serial_debug: int = 0):
                 save_path = f"camera_frame_{frame_save_count}.jpg"
                 cv2.imwrite(save_path, output)
                 print(f"\n当前帧已保存至: {save_path}")
-            time.sleep(0.05)
+            # time.sleep(0.05)
 
     finally:
         # 清理资源

@@ -57,7 +57,7 @@ class ItemConfig:
         morph_iterations (int): 形态学操作迭代次数
     """
     # HSV颜色范围 - 黄色
-    yellow_lower: Tuple[int, int, int] = (20, 100, 100)
+    yellow_lower: Tuple[int, int, int] = (20, 120, 140)
     yellow_upper: Tuple[int, int, int] = (30, 255, 255)
     # HSV颜色范围 - 红色（两段）
     red_lower1: Tuple[int, int, int] = (0, 90, 60)
