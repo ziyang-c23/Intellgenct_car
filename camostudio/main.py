@@ -1332,8 +1332,8 @@ def process_camera(camera_id: int = 0, serial_debug: int = 0):
             output = vision.process_frame(frame)
 
             if SER_DEBUG:
-                vision.transmission_data["SEARCH_OBJ_NUM"] = 0
-                vision.transmission_data["item_out_of_bounds"] = 0
+                # vision.transmission_data["SEARCH_OBJ_NUM"] = 0
+                # vision.transmission_data["item_out_of_bounds"] = 0
                 send_camostudio_data(ser, vision.transmission_data)
                 # message = receive_str_response(ser, timeout=0.05)
                 # print(message)
