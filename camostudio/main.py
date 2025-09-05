@@ -590,7 +590,7 @@ class VisionSystem:
         
         # 计算距离
         distance = np.hypot(delta_u, delta_v)
-        
+
         # 返回计算结果
         return {
             'relative_angle_deg': float(relative_angle),
