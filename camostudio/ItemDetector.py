@@ -57,16 +57,16 @@ class ItemConfig:
         morph_iterations (int): 形态学操作迭代次数
     """
     # HSV颜色范围 - 黄色
-    yellow_lower: Tuple[int, int, int] = (20, 120, 140)
+    yellow_lower: Tuple[int, int, int] = (20, 120, 110)
     yellow_upper: Tuple[int, int, int] = (30, 255, 255)
     # HSV颜色范围 - 红色（两段）
-    red_lower1: Tuple[int, int, int] = (0, 90, 60)
-    red_upper1: Tuple[int, int, int] = (15, 255, 255)
-    red_lower2: Tuple[int, int, int] = (165, 90, 60)
+    red_lower1: Tuple[int, int, int] = (0, 100, 70)
+    red_upper1: Tuple[int, int, int] = (10, 255, 255)
+    red_lower2: Tuple[int, int, int] = (175, 100, 70)
     red_upper2: Tuple[int, int, int] = (180, 255, 255)
     # 面积范围
     min_area: int = 0
-    max_area: int = 10000
+    max_area: int = 200
     # 形状约束
     min_aspect_ratio: float = 0.5
     max_aspect_ratio: float = 2.0

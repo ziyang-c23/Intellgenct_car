@@ -51,8 +51,13 @@ from ItemDetector import ItemDetector
 from camostudio_comm import open_serial, close_serial, send_camostudio_data, receive_str_response, SerialCommError
 from typing import Dict, List, Optional, Tuple
 
-cnt = 0
-w_home, h_home = 150, 130
+w_factor_middle, h_factor_middle = 2.5, 2
+w_factor_final, h_factor_final = 0.5, 0.5
+w_self_home, h_self_home = 130, 130
+w_oppo_home, h_oppo_home = 120, 130
+place_home_distance_limit = 80
+middle_home_distance_limit = 100
+to_middle_home_flag = True
 
 def extract_vision_data(vision_results: Dict) -> Dict[str, int]:
     """
@@ -429,8 +434,8 @@ class VisionSystem:
         # 按距离排序并选择最近的
         if valid_items:
             valid_items.sort(key=lambda x: x['distance_px'])
-            if len(valid_items) > 2:
-                valid_items = valid_items[:3]
+            if len(valid_items) > 1:
+                valid_items = valid_items[:2]
                 valid_items.sort(key=lambda x: x['dist2last_px'])
             nav_info['nearest_item'] = valid_items[0]
             self.u_last_item, self.v_last_item = nav_info['nearest_item']['center']
@@ -541,7 +546,7 @@ class VisionSystem:
                 - distance_px: float, 像素距离
                 - delta_uv: Tuple[float, float], 位移向量
         """
-        global cnt
+        global to_middle_home_flag
 
         nav_info = self.results['navigation']
         
@@ -562,23 +567,24 @@ class VisionSystem:
             return
         if self.results['fence'].quad is None or len(self.results['fence'].quad) != 4:
             u_home, v_home = self.u_last_self_home, self.v_last_self_home
+            self.u_last_self_home, self.v_last_self_home = u_home, v_home
         else :
             u_home, v_home = self.results['fence'].quad[3]
-            u_home, v_home = u_home + w_home//2, v_home - h_home//2
+            if to_middle_home_flag:
+                u_home, v_home = u_home + w_factor_middle * w_self_home, v_home - h_factor_middle * h_self_home
+            else:
+                u_home, v_home = u_home + w_factor_final * w_self_home, v_home - h_factor_final * h_self_home
             self.u_last_self_home, self.v_last_self_home = u_home, v_home
-
-        # if cnt == 0:
-        #     u_home, v_home = self.results['home'].Self_Center
-        #     self.u_last_home, self.v_last_home = u_home, v_home
-        #     cnt = 1
-        # if cnt == 1:
-        #     u_home, v_home = self.u_last_home, self.v_last_home
-        # u_home, v_home = 400, 650
 
         # 计算位移向量
         delta_u = float(u_home - u_car)
         delta_v = float(v_home - v_car)
         
+        # 计算距离
+        distance = np.hypot(delta_u, delta_v)
+        if distance < middle_home_distance_limit and len(self.results['items']) == 0:
+            to_middle_home_flag = False
+
         # 计算绝对方位角（度数）
         angle = np.degrees(np.arctan2(delta_v, delta_u))
         
@@ -588,8 +594,11 @@ class VisionSystem:
         # 归一化到 [-180, 180]
         relative_angle = (relative_angle + 180) % 360 - 180
         
-        # 计算距离
-        distance = np.hypot(delta_u, delta_v)
+        if not to_middle_home_flag:
+            if distance < place_home_distance_limit:
+                distance = -1
+            else :
+                distance = -5500
 
         # 返回计算结果
         return {
@@ -629,7 +638,6 @@ class VisionSystem:
                 - distance_px: float, 像素距离
                 - delta_uv: Tuple[float, float], 位移向量
         """
-        global cnt
 
         nav_info = self.results['navigation']
         
@@ -652,15 +660,8 @@ class VisionSystem:
             u_home, v_home = self.u_last_oppo_home, self.v_last_oppo_home
         else :
             u_home, v_home = self.results['fence'].quad[1]
+            u_home, v_home = u_home - w_oppo_home, v_home + h_oppo_home
             self.u_last_oppo_home, self.v_last_oppo_home = u_home, v_home
-
-        # if cnt == 0:
-        #     u_home, v_home = self.results['home'].Self_Center
-        #     self.u_last_home, self.v_last_home = u_home, v_home
-        #     cnt = 1
-        # if cnt == 1:
-        #     u_home, v_home = self.u_last_home, self.v_last_home
-        # u_home, v_home = 400, 650
 
         # 计算位移向量
         delta_u = float(u_home - u_car)
@@ -670,7 +671,7 @@ class VisionSystem:
         angle = np.degrees(np.arctan2(delta_v, delta_u))
         
         # 计算相对方位角（度数）
-        relative_angle = angle - (nav_info['car_angle'] - 180)
+        relative_angle = angle - nav_info['car_angle']
         
         # 归一化到 [-180, 180]
         relative_angle = (relative_angle + 180) % 360 - 180
@@ -751,7 +752,7 @@ class VisionSystem:
             return
         
         u, v = self.results['fence'].quad[3]
-        home_quad = np.array([[u, v-h_home], [u+w_home, v-h_home], [u+w_home, v], [u, v]])
+        home_quad = np.array([[u, v-h_self_home], [u+w_self_home, v-h_self_home], [u+w_self_home, v], [u, v]])
         # 遍历所有物体
         for item in items_result:
             # 跳过无效物体
@@ -915,7 +916,7 @@ class VisionSystem:
 
         # 在图像上绘制所有检测结果
         output = self.draw_all_results(frame.copy())
-        
+        # output = frame.copy()
         # 提取要传输的数据，包含以下信息:
         # - 围栏四个顶点坐标 (fence_x1~x4, fence_y1~y4)
         # - 目标区域中心点 (home_x, home_y)
@@ -1088,15 +1089,17 @@ class VisionSystem:
             for line in info_lines:
                 cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
                 current_y += line_height
-                
-        u, v = self.results['fence'].quad[3]
-        cv2.rectangle(frame, (u + w_home, v - h_home), (u, v), (255, 0, 0), 2)
+
+        u_self_home, v_self_home = self.results['fence'].quad[3]
+        cv2.rectangle(frame, (u_self_home + w_self_home, v_self_home - h_self_home), (u_self_home, v_self_home), (255, 0, 0), 2)
+        u_oppo_home, v_oppo_home = self.results['fence'].quad[1]
+        cv2.rectangle(frame, (u_oppo_home - w_oppo_home, v_oppo_home), (u_oppo_home, v_oppo_home + h_oppo_home), (255, 0, 255), 2)
         # 6. 添加到自己家的导航线
         if nav_info['car_pos'] and self.results['fence'].quad is not None and len(self.results['fence'].quad) == 4:
             # 绘制到家的导航线（使用蓝色区分）
             cv2.line(frame, 
                     tuple(map(int, nav_info['car_pos'])), 
-                    tuple(map(int, (self.results['fence'].quad[3][0] + w_home//2, self.results['fence'].quad[3][1] - h_home//2))), 
+                    tuple(map(int, (self.u_last_self_home, self.v_last_self_home))), 
                     (255, 0, 0), 2)  # 蓝色线
 
 
@@ -1105,11 +1108,11 @@ class VisionSystem:
             
             # 方位角
             if nav_info['self_home_relative_angle'] is not None:
-                home_info_lines.append(f"Home Angle: {nav_info['self_home_relative_angle']:.1f} deg")
+                home_info_lines.append(f"Self Home Angle: {nav_info['self_home_relative_angle']:.1f} deg")
 
             # 距离
             if nav_info['self_home_distance'] is not None:
-                home_info_lines.append(f"Home Dist: {nav_info['self_home_distance']:.1f}px")
+                home_info_lines.append(f"Self Home Dist: {nav_info['self_home_distance']:.1f}px")
 
             # 绘制信息
             color = (255, 0, 0)  # 蓝色
@@ -1122,7 +1125,7 @@ class VisionSystem:
             # 绘制到家的导航线（使用紫色区分）
             cv2.line(frame, 
                     tuple(map(int, nav_info['car_pos'])), 
-                    tuple(map(int, self.results['fence'].quad[1])), 
+                    tuple(map(int, (self.results['fence'].quad[1][0] - w_oppo_home//2, self.results['fence'].quad[1][1] + h_oppo_home//2))), 
                     (255, 0, 255), 2)  # 紫色线
             
             # 添加到家的导航信息

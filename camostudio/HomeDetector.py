@@ -173,7 +173,7 @@ class HomeConfig:
     # black_upper: tuple = (85, 255, 255)  # 绿色上界
     # 面积范围（像素）
     min_area: int = 100
-    max_area: int = 1000000
+    max_area: int = 10000
     # 宽高比范围
     aspect_ratio_range: tuple = (0.5, 2.0)
     # 角度阈值（度）

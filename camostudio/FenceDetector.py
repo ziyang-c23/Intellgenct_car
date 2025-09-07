@@ -56,8 +56,8 @@ class FenceConfig:
         - shrink_ratio: 内收边界比例，用于避障
     """
     # HSV颜色范围
-    blue_lower: tuple = (100, 60, 60)
-    blue_upper: tuple = (130, 255, 255)
+    blue_lower: tuple = (100, 70, 70)
+    blue_upper: tuple = (110, 255, 255)
     # 面积范围（像素）
     min_area: int = 1000
     max_area: int = 1500000
@@ -254,7 +254,7 @@ class FenceDetector:
             min_y = np.min(result.quad[:, 1])
             
             # 确保文本不会超出图像边界
-            text_x = min_x + 120  # 向右偏移100像素
+            text_x = min_x + 300  # 向右偏移100像素
             text_y = max(min_y, 30)  # 向上偏移10像素，但不小于30
 
             for i, text in enumerate(info_text):
