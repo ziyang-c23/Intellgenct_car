@@ -67,7 +67,7 @@ class FenceConfig:
     angle_threshold: float = 15.0
     # 内收边界比例（0-1之间的值）
     X_shrink_ratio: float = 0.10
-    Y_shrink_ratio: float = 0.15
+    Y_shrink_ratio: float = 0.12
 
 @dataclass
 class FenceInfo:

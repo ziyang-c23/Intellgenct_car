@@ -51,12 +51,12 @@ from ItemDetector import ItemDetector
 from camostudio_comm import open_serial, close_serial, send_camostudio_data, receive_str_response, SerialCommError
 from typing import Dict, List, Optional, Tuple
 
-w_factor_middle, h_factor_middle = 2.5, 2
-w_factor_final, h_factor_final = 0.5, 0.5
+w_factor_middle, h_factor_middle = 3, 1.5
+w_factor_final, h_factor_final = 0.2, 0.5
 w_self_home, h_self_home = 130, 130
 w_oppo_home, h_oppo_home = 120, 130
-place_home_distance_limit = 80
-middle_home_distance_limit = 100
+place_home_distance_limit = 60
+middle_home_distance_limit = 60
 to_middle_home_flag = True
 
 def extract_vision_data(vision_results: Dict) -> Dict[str, int]:
@@ -137,20 +137,22 @@ def extract_vision_data(vision_results: Dict) -> Dict[str, int]:
         }
 
         result['SEARCH_OBJ_NUM'] = len(vision_results['items'])
-
-        # 3. 提取到最近物体的的相对位置
         nav_info = vision_results['navigation']
-        if nav_info['item_relative_angle'] is not None and nav_info['item_distance'] is not None:
-            # 相对角度（乘以10以保留一位小数）
-            angle = nav_info['item_relative_angle']
-            result['item_angle'] = int(round(angle * 10))
-            
-            # 距离（像素）
-            result['item_distance'] = int(round(nav_info['item_distance']))
-            
-            # 设置是否超出内收矩形区域的标志
-            if nav_info['nearest_item'] and 'out_of_bounds' in nav_info['nearest_item']:
-                result['item_out_of_bounds'] = 1 if nav_info['nearest_item']['out_of_bounds'] else 0
+
+        if result['SEARCH_OBJ_NUM'] != 0:
+        
+            # 3. 提取到最近物体的的相对位置
+            if nav_info['item_relative_angle'] is not None and nav_info['item_distance'] is not None:
+                # 相对角度（乘以10以保留一位小数）
+                angle = nav_info['item_relative_angle']
+                result['item_angle'] = int(round(angle * 10))
+                
+                # 距离（像素）
+                result['item_distance'] = int(round(nav_info['item_distance']))
+                
+                # 设置是否超出内收矩形区域的标志
+                if nav_info['nearest_item'] and 'out_of_bounds' in nav_info['nearest_item']:
+                    result['item_out_of_bounds'] = 1 if nav_info['nearest_item']['out_of_bounds'] else 0
         else:
             # 没有有效的导航信息，将无效值设为0
             result['item_angle'] = 0  # 无效角度设为0
@@ -582,8 +584,6 @@ class VisionSystem:
         
         # 计算距离
         distance = np.hypot(delta_u, delta_v)
-        if distance < middle_home_distance_limit and len(self.results['items']) == 0:
-            to_middle_home_flag = False
 
         # 计算绝对方位角（度数）
         angle = np.degrees(np.arctan2(delta_v, delta_u))
@@ -598,8 +598,12 @@ class VisionSystem:
             if distance < place_home_distance_limit:
                 distance = -1
             else :
-                distance = -5500
+                distance = -4300
 
+        if distance < middle_home_distance_limit and len(self.results['items']) == 0:
+            to_middle_home_flag = False
+
+        # print(f"to_home: {to_middle_home_flag}, distance: {distance}, angle: {relative_angle}")
         # 返回计算结果
         return {
             'relative_angle_deg': float(relative_angle),
@@ -1333,6 +1337,7 @@ def process_camera(camera_id: int = 0, serial_debug: int = 0):
                 
             # 处理图像
             output = vision.process_frame(frame)
+            print(vision.transmission_data)
 
             if SER_DEBUG:
                 # vision.transmission_data["SEARCH_OBJ_NUM"] = 0
