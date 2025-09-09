@@ -52,10 +52,11 @@ from camostudio_comm import open_serial, close_serial, send_camostudio_data, rec
 from typing import Dict, List, Optional, Tuple
 
 w_factor_middle, h_factor_middle = 3, 1.5
-w_factor_final, h_factor_final = 0.2, 0.5
+# w_factor_middle, h_factor_middle = 0.2, 0.2
+w_factor_final, h_factor_final = 0.2, 0.2
 w_self_home, h_self_home = 130, 130
 w_oppo_home, h_oppo_home = 120, 130
-place_home_distance_limit = 60
+place_home_distance_limit = 80
 middle_home_distance_limit = 60
 to_middle_home_flag = True
 
@@ -313,7 +314,7 @@ class VisionSystem:
         self.u_last_oppo_home = 0
         self.v_last_oppo_home = 0
         self.u_last_item = 0
-        self.v_last_item = 0
+        self.v_last_item = 500
         # 性能指标
         self.fps = 0.0  # float - 当前帧率
 
@@ -599,8 +600,9 @@ class VisionSystem:
                 distance = -1
             else :
                 distance = -4300
-
-        if distance < middle_home_distance_limit and len(self.results['items']) == 0:
+        if len(self.results['items']) != 0:
+            to_middle_home_flag = True
+        elif distance < place_home_distance_limit:
             to_middle_home_flag = False
 
         # print(f"to_home: {to_middle_home_flag}, distance: {distance}, angle: {relative_angle}")
@@ -1337,6 +1339,8 @@ def process_camera(camera_id: int = 0, serial_debug: int = 0):
                 
             # 处理图像
             output = vision.process_frame(frame)
+            # vision.transmission_data["SEARCH_OBJ_NUM"] = 0
+
             print(vision.transmission_data)
 
             if SER_DEBUG:
@@ -1361,6 +1365,10 @@ def process_camera(camera_id: int = 0, serial_debug: int = 0):
             # 键盘控制
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):  # 退出
+                if SER_DEBUG:
+                    vision.transmission_data["SEARCH_OBJ_NUM"] = 0
+                    vision.transmission_data["item_out_of_bounds"] = 0
+                    send_camostudio_data(ser, vision.transmission_data)
                 break
             elif key == ord('s'):  # 保存当前帧
                 frame_save_count += 1
