@@ -707,7 +707,7 @@ if __name__ == "__main__":
     detector = HomeDetector(config)
     
     # 尝试打开摄像头
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(2)
     if cap.isOpened():
         print("已打开摄像头，开始实时检测... (按 q 退出)")
         while True:

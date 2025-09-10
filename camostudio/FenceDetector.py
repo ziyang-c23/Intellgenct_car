@@ -40,6 +40,7 @@ FenceDetector 围栏检测模块
 
 import cv2
 import numpy as np
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -66,8 +67,8 @@ class FenceConfig:
     # 角度阈值（度）
     angle_threshold: float = 15.0
     # 内收边界比例（0-1之间的值）
-    X_shrink_ratio: float = 0.10
-    Y_shrink_ratio: float = 0.12
+    X_shrink_ratio: float = 0.05
+    Y_shrink_ratio: float = 0.05
 
 @dataclass
 class FenceInfo:
@@ -461,8 +462,8 @@ if __name__ == "__main__":
         max_area=1500000,
         aspect_ratio_range=(0.5, 2.0),
         angle_threshold=15.0,
-        X_shrink_ratio=0.15,  # 向内收缩10%X
-        Y_shrink_ratio=0.20
+        X_shrink_ratio=0.10,  # 向内收缩10%X
+        Y_shrink_ratio=0.15
     )
     detector = FenceDetector(config)
     

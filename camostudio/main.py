@@ -52,9 +52,9 @@ from camostudio_comm import open_serial, close_serial, send_camostudio_data, rec
 from typing import Dict, List, Optional, Tuple
 
 w_factor_middle, h_factor_middle = 3, 1.5
-# w_factor_middle, h_factor_middle = 0.2, 0.2
+w_factor_middle, h_factor_middle = 0.2, 0.2
 w_factor_final, h_factor_final = 0.2, 0.2
-w_self_home, h_self_home = 130, 130
+w_self_home, h_self_home = 100, 130
 w_oppo_home, h_oppo_home = 120, 130
 place_home_distance_limit = 80
 middle_home_distance_limit = 60
@@ -602,7 +602,7 @@ class VisionSystem:
                 distance = -4300
         if len(self.results['items']) != 0:
             to_middle_home_flag = True
-        elif distance < place_home_distance_limit:
+        elif to_middle_home_flag and distance < place_home_distance_limit:
             to_middle_home_flag = False
 
         # print(f"to_home: {to_middle_home_flag}, distance: {distance}, angle: {relative_angle}")
@@ -1329,26 +1329,34 @@ def process_camera(camera_id: int = 0, serial_debug: int = 0):
     SER_DEBUG = serial_debug  # 是否启用串口调试
     if SER_DEBUG:
         ser = open_serial()
+        input("串口已打开，按回车继续...")
 
+    st_time = time.time()
+     # 主循环
+    now_time = time.time() - st_time
     try:
         while True:
             ret, frame = cap.read()
+            now_time = time.time() - st_time
             if not ret:
                 print("无法读取摄像头画面!")
                 break
                 
             # 处理图像
             output = vision.process_frame(frame)
+            if now_time > 120:
+                    vision.transmission_data["SEARCH_OBJ_NUM"] = 0
+                    vision.transmission_data["item_out_of_bounds"] = 0
             # vision.transmission_data["SEARCH_OBJ_NUM"] = 0
 
-            print(vision.transmission_data)
+            # print(vision.transmission_data)
 
             if SER_DEBUG:
-                # vision.transmission_data["SEARCH_OBJ_NUM"] = 0
-                # vision.transmission_data["item_out_of_bounds"] = 0
+
+                
                 send_camostudio_data(ser, vision.transmission_data)
-                # message = receive_str_response(ser, timeout=0.05)
-                # print(message)
+                message = receive_str_response(ser, timeout=0.1)
+                print(message)
             # 更新FPS
             frame_count += 1
             if frame_count >= 30:

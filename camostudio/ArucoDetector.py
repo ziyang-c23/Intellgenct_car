@@ -339,7 +339,7 @@ if __name__ == "__main__":
     
     # 1. 尝试打开摄像头
     print("\n尝试打开摄像头...")
-    cap = cv2.VideoCapture(0)  # 使用默认摄像头
+    cap = cv2.VideoCapture(2)  # 使用默认摄像头
     
     if cap.isOpened():
         # 设置摄像头分辨率

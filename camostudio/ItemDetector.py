@@ -65,7 +65,7 @@ class ItemConfig:
     red_lower2: Tuple[int, int, int] = (175, 100, 70)
     red_upper2: Tuple[int, int, int] = (180, 255, 255)
     # 面积范围
-    min_area: int = 0
+    min_area: int = 20
     max_area: int = 200
     # 形状约束
     min_aspect_ratio: float = 0.5
@@ -460,7 +460,7 @@ if __name__ == "__main__":
     主程序：打开摄像头，实时检测并显示红色和黄色物体。
     按q键退出。
     """
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(2)
     detector = ItemDetector()
     if cap.isOpened():
         while True:
