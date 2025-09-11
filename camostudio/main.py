@@ -52,7 +52,7 @@ from camostudio_comm import open_serial, close_serial, send_camostudio_data, rec
 from typing import Dict, List, Optional, Tuple
 
 w_factor_middle, h_factor_middle = 3, 1.5
-w_factor_middle, h_factor_middle = 0.2, 0.2
+# w_factor_middle, h_factor_middle = 0.2, 0.2
 w_factor_final, h_factor_final = 0.2, 0.2
 w_self_home, h_self_home = 100, 130
 w_oppo_home, h_oppo_home = 120, 130
@@ -876,7 +876,7 @@ class VisionSystem:
         # 检查物体是否在家区域内
         self.valid_item_in_home(items_result, home_result)
         
-        self.results['items'] = [item for item in items_result if item.get('valid', True)]
+        # self.results['items'] = [item for item in items_result if item.get('valid', True)]
         
         # 更新车体位置和朝向（从ArUco检测结果）
         nav_info = self.results['navigation']
@@ -1015,13 +1015,13 @@ class VisionSystem:
         line_height = 30
         current_y = margin + line_height
         
-        # 1. 绘制围栏
+        # # 1. 绘制围栏
         if self.results['fence'] is not None:
             frame = self.fence_detector.draw_results(frame, self.results['fence'])
             
-        # 2. 绘制家区域
-        if self.results['home'] is not None:
-            frame = self.home_detector.draw_results(frame, self.results['home'])
+        # # 2. 绘制家区域
+        # if self.results['home'] is not None:
+        #     frame = self.home_detector.draw_results(frame, self.results['home'])
             
         # 3. 绘制物体
         if self.results['items']:
@@ -1031,7 +1031,7 @@ class VisionSystem:
         if self.results['aruco']:
             frame = self.aruco_detector.draw_detections(frame, self.results['aruco'])
             
-        # 5. 添加导航信息（最近物体）
+        # # 5. 添加导航信息（最近物体）
         nav_info = self.results['navigation']
         if nav_info['car_pos'] and nav_info['nearest_item']:
             nearest_item = nav_info['nearest_item']
@@ -1097,69 +1097,73 @@ class VisionSystem:
                 current_y += line_height
 
         u_self_home, v_self_home = self.results['fence'].quad[3]
-        cv2.rectangle(frame, (u_self_home + w_self_home, v_self_home - h_self_home), (u_self_home, v_self_home), (255, 0, 0), 2)
+        # cv2.rectangle(frame, (u_self_home + w_self_home, v_self_home - h_self_home), (u_self_home, v_self_home), (255, 0, 0), 2)
         u_oppo_home, v_oppo_home = self.results['fence'].quad[1]
-        cv2.rectangle(frame, (u_oppo_home - w_oppo_home, v_oppo_home), (u_oppo_home, v_oppo_home + h_oppo_home), (255, 0, 255), 2)
+        # cv2.rectangle(frame, (u_oppo_home - w_oppo_home, v_oppo_home), (u_oppo_home, v_oppo_home + h_oppo_home), (255, 0, 255), 2)
         # 6. 添加到自己家的导航线
-        if nav_info['car_pos'] and self.results['fence'].quad is not None and len(self.results['fence'].quad) == 4:
-            # 绘制到家的导航线（使用蓝色区分）
-            cv2.line(frame, 
-                    tuple(map(int, nav_info['car_pos'])), 
-                    tuple(map(int, (self.u_last_self_home, self.v_last_self_home))), 
-                    (255, 0, 0), 2)  # 蓝色线
+        # if nav_info['car_pos'] and self.results['fence'].quad is not None and len(self.results['fence'].quad) == 4:
+        #     # 绘制到家的导航线（使用蓝色区分）
+        #     cv2.line(frame, 
+        #             tuple(map(int, nav_info['car_pos'])), 
+        #             tuple(map(int, (self.u_last_self_home, self.v_last_self_home))), 
+        #             (255, 0, 0), 2)  # 蓝色线
+        #     cv2.line(frame,
+        #             tuple(map(int, (self.u_last_self_home, self.v_last_self_home))),
+        #             tuple(map(int, (u_self_home + w_factor_final * w_self_home, v_self_home - h_factor_final * h_self_home))),
+        #             (255, 0, 0), 2)  # 蓝色线
 
 
             # 添加到家的导航信息
-            home_info_lines = []
+            # home_info_lines = []
             
-            # 方位角
-            if nav_info['self_home_relative_angle'] is not None:
-                home_info_lines.append(f"Self Home Angle: {nav_info['self_home_relative_angle']:.1f} deg")
+            # # 方位角
+            # if nav_info['self_home_relative_angle'] is not None:
+            #     home_info_lines.append(f"Self Home Angle: {nav_info['self_home_relative_angle']:.1f} deg")
 
-            # 距离
-            if nav_info['self_home_distance'] is not None:
-                home_info_lines.append(f"Self Home Dist: {nav_info['self_home_distance']:.1f}px")
+            # # 距离
+            # if nav_info['self_home_distance'] is not None:
+            #     home_info_lines.append(f"Self Home Dist: {nav_info['self_home_distance']:.1f}px")
 
-            # 绘制信息
-            color = (255, 0, 0)  # 蓝色
-            for line in home_info_lines:
-                cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
-                current_y += line_height
+            # # 绘制信息
+            # color = (255, 0, 0)  # 蓝色
+            # for line in home_info_lines:
+            #     cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
+            #     current_y += line_height
 
-        # 7. 添加到对方家的导航线
-        if nav_info['car_pos'] and self.results['fence'].quad is not None and len(self.results['fence'].quad) == 4:
-            # 绘制到家的导航线（使用紫色区分）
-            cv2.line(frame, 
-                    tuple(map(int, nav_info['car_pos'])), 
-                    tuple(map(int, (self.results['fence'].quad[1][0] - w_oppo_home//2, self.results['fence'].quad[1][1] + h_oppo_home//2))), 
-                    (255, 0, 255), 2)  # 紫色线
+        # # 7. 添加到对方家的导航线
+        # if nav_info['car_pos'] and self.results['fence'].quad is not None and len(self.results['fence'].quad) == 4:
+        #     # 绘制到家的导航线（使用紫色区分）
+        #     cv2.line(frame, 
+        #             tuple(map(int, nav_info['car_pos'])), 
+        #             tuple(map(int, (self.results['fence'].quad[1][0] - w_oppo_home//2, self.results['fence'].quad[1][1] + h_oppo_home//2))), 
+        #             (255, 0, 255), 2)  # 紫色线
             
-            # 添加到家的导航信息
-            oppo_home_info_lines = []
-            # 方位角
-            if nav_info['oppo_home_relative_angle'] is not None:
-                oppo_home_info_lines.append(f"Oppo Home Angle: {nav_info['oppo_home_relative_angle']:.1f} deg")
-            # 距离
-            if nav_info['oppo_home_distance'] is not None:
-                oppo_home_info_lines.append(f"Oppo Home Dist: {nav_info['oppo_home_distance']:.1f}px")
-            # 绘制信息
-            color = (255, 0, 255)  # 紫色
-            for line in oppo_home_info_lines:
-                cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
-                current_y += line_height
+        #     # 添加到家的导航信息
+        #     oppo_home_info_lines = []
+        #     # 方位角
+        #     if nav_info['oppo_home_relative_angle'] is not None:
+        #         oppo_home_info_lines.append(f"Oppo Home Angle: {nav_info['oppo_home_relative_angle']:.1f} deg")
+        #     # 距离
+        #     if nav_info['oppo_home_distance'] is not None:
+        #         oppo_home_info_lines.append(f"Oppo Home Dist: {nav_info['oppo_home_distance']:.1f}px")
+        #     # 绘制信息
+        #     color = (255, 0, 255)  # 紫色
+        #     for line in oppo_home_info_lines:
+        #         cv2.putText(frame, line, (margin, current_y), font, 0.7, color, 2)
+        #         current_y += line_height
 
 
         # 6. 添加帧率显示（显示在右上角）
-        if hasattr(self, 'fps'):
-            fps_text = f"FPS: {self.fps:.1f}"
-            # 获取文本大小
-            (text_w, text_h), _ = cv2.getTextSize(fps_text, 
-                                                 cv2.FONT_HERSHEY_SIMPLEX, 
-                                                 0.7, 2)
-            # 在右上角显示
-            cv2.putText(frame, fps_text,
-                       (w - text_w - margin, margin + text_h),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # if hasattr(self, 'fps'):
+        #     fps_text = f"FPS: {self.fps:.1f}"
+        #     # 获取文本大小
+        #     (text_w, text_h), _ = cv2.getTextSize(fps_text, 
+        #                                          cv2.FONT_HERSHEY_SIMPLEX, 
+        #                                          0.7, 2)
+        #     # 在右上角显示
+        #     cv2.putText(frame, fps_text,
+        #                (w - text_w - margin, margin + text_h),
+        #                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         return frame
 
